@@ -3,7 +3,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { useState } from "react";
 
-type FileInfo = { path: string; exists: boolean; size?: number | null };
+type FileInfo = { path: string };
 type ProcessFilesResponse = {
 	total: number;
 	processed: number;
@@ -14,7 +14,6 @@ function App() {
 	const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
 	const [isDragOver, setIsDragOver] = useState(false);
 
-	// Processing state for invoking the Rust command
 	const [processing, setProcessing] = useState(false);
 	const [result, setResult] = useState<ProcessFilesResponse | null>(null);
 	const [procError, setProcError] = useState<string | null>(null);
@@ -36,7 +35,6 @@ function App() {
 			if (files) {
 				const filePaths = Array.isArray(files) ? files : [files];
 				setSelectedFiles(filePaths);
-				console.log("Selected files:", filePaths);
 			}
 		} catch (error) {
 			console.error("Error opening file dialog:", error);
@@ -57,13 +55,11 @@ function App() {
 		e.preventDefault();
 		setIsDragOver(false);
 
-		// Extract file paths from dropped files
 		const files = Array.from(e.dataTransfer.files);
 		const filePaths = files.map(
 			(file) => (file as File & { path: string }).path,
-		); // Use file.path for full file paths in Tauri
+		);
 		setSelectedFiles(filePaths);
-		console.log("Dropped files:", filePaths);
 	};
 
 	const runProcessing = async () => {
@@ -76,7 +72,6 @@ function App() {
 				paths: selectedFiles,
 			});
 			setResult(res);
-			console.log("process_files result:", res);
 		} catch (err) {
 			console.error("process_files error:", err);
 			setProcError(String(err));
@@ -227,12 +222,7 @@ function App() {
 								</p>
 								<ul>
 									{result.files.map((f) => (
-										<li key={f.path}>
-											{f.path} —{" "}
-											{f.exists
-												? `exists${typeof f.size === "number" ? ` (${f.size} bytes)` : ""}`
-												: "missing"}
-										</li>
+										<li key={f.path}>{f.path}</li>
 									))}
 								</ul>
 							</div>
