@@ -16,6 +16,8 @@
 [![Tauri](https://img.shields.io/badge/Tauri-2.0-24C8DB?style=flat-square&logo=tauri)](https://tauri.app)
 [![Rust](https://img.shields.io/badge/Rust-1.80+-000000?style=flat-square&logo=rust)](https://www.rust-lang.org)
 [![React](https://img.shields.io/badge/React-19.1-61DAFB?style=flat-square&logo=react)](https://react.dev)
+[![Vite](https://img.shields.io/badge/Vite-6.0-646CFF?style=flat-square&logo=vite)](https://vitejs.dev)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-3.4-06B6D4?style=flat-square&logo=tailwindcss)](https://tailwindcss.com)
 [![Bun](https://img.shields.io/badge/Bun-1.3+-000000?style=flat-square&logo=bun)](https://bun.sh)
 [![Iroh](https://img.shields.io/badge/Iroh-0.93-7C7EF0?style=flat-square)](https://iroh.computer)
 
