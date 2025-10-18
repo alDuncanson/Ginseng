@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tokio::sync::OnceCell;
 
 #[derive(Debug)]
-struct IrohInner {
+pub(crate) struct IrohInner {
     endpoint: Endpoint,
     store: MemStore,
     #[allow(dead_code)]
