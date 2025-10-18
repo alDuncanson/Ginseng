@@ -1,4 +1,4 @@
-use tether_lib::core;
+use ginseng_lib::core;
 
 #[test]
 fn process_files_json_shape() {

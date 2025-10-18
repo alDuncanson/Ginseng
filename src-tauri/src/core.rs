@@ -44,7 +44,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = dir.join(format!("tether_test_core_{}.bin", ts));
+        let path = dir.join(format!("ginseng_test_core_{}.bin", ts));
         fs::write(&path, vec![0u8; size]).expect("write temp file");
         path.to_string_lossy().into_owned()
     }
@@ -71,7 +71,7 @@ mod tests {
     fn single_missing_is_not_processed() {
         let dir = std::env::temp_dir();
         let missing = dir
-            .join("tether_core_missing.bin")
+            .join("ginseng_core_missing.bin")
             .to_string_lossy()
             .into_owned();
         let resp = process_paths(vec![missing.clone()]);
@@ -85,7 +85,7 @@ mod tests {
         let exists = tmp_file(8);
         let dir = std::env::temp_dir();
         let missing = dir
-            .join("tether_core_missing2.bin")
+            .join("ginseng_core_missing2.bin")
             .to_string_lossy()
             .into_owned();
         let resp = process_paths(vec![exists.clone(), missing.clone()]);
