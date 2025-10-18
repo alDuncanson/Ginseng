@@ -17,7 +17,7 @@
 [![Rust](https://img.shields.io/badge/Rust-1.80+-000000?style=flat-square&logo=rust)](https://www.rust-lang.org)
 [![React](https://img.shields.io/badge/React-19.1-61DAFB?style=flat-square&logo=react)](https://react.dev)
 [![Bun](https://img.shields.io/badge/Bun-1.3+-000000?style=flat-square&logo=bun)](https://bun.sh)
-[![Iroh](https://img.shields.io/badge/Iroh-0.93-FF6B6B?style=flat-square)](https://iroh.computer)
+[![Iroh](https://img.shields.io/badge/Iroh-0.93-7C7EF0?style=flat-square)](https://iroh.computer)
 
 *Native peer-to-peer file sharing that restores user agency*
 
