@@ -33,7 +33,7 @@ No accounts. No servers. No gatekeepers. Just cryptographically secure connectio
 
 **Nix Flake** (recommended):
 ```bash
-nix develop                # Enter development shell
+nix develop               # Enter development shell
 nix run .#dev             # Launch development build
 nix run .#build           # Create release bundles
 ```
