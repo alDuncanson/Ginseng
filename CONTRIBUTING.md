@@ -40,11 +40,13 @@ Small fixes to documentation, typos, or clarifications may be accepted through p
 - Share Ginseng with others who value digital sovereignty
 - Engage thoughtfully in discussions about peer-to-peer technology
 - Help articulate why user agency matters in our current technological landscape
+- Participate in [GitHub Discussions](https://github.com/alDuncanson/ginseng/discussions) to share ideas and feedback
 
 ### Testing and Feedback
 - Try development builds and share your experience
 - Provide feedback on user interface decisions
 - Test edge cases and unusual network conditions
+- Share your thoughts in [GitHub Discussions](https://github.com/alDuncanson/ginseng/discussions)
 
 Keep in mind that feedback may influence development, but there's no commitment to implement suggestions since this remains a personal project.
 

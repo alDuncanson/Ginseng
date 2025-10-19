@@ -66,3 +66,7 @@ CI validates TypeScript compilation, Rust formatting, linting, and test suites. 
 The Nix flake provides reproducible development environments with Rust toolchain, Bun runtime, and all system dependencies pre-configured.
 
 > **Note**: This is a passion project in active development. I'm currently working through fundamental questions about direction, branding, and vision before opening to broader community contributions. See [CONTRIBUTING.md](CONTRIBUTING.md) for details on how you can help during this phase.
+
+## Community
+
+Join the conversation in [GitHub Discussions](https://github.com/alDuncanson/ginseng/discussions) to share ideas, provide feedback, or discuss peer-to-peer technology and digital sovereignty.
