@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v*.*.*"
+      - "v*.*.*-*"
   workflow_dispatch:
 
 concurrency:
@@ -26,7 +27,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           draft: false
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -74,5 +75,5 @@ jobs:
           releaseId: ${{ needs.create-release.outputs.release_id }}
           releaseName: Ginseng ${{ github.ref_name }}
           releaseDraft: false
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
           args: ${{ matrix.args }}
