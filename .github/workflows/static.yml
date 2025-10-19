@@ -40,6 +40,26 @@ jobs:
           cd site
           bun run build
 
+      - name: Add .nojekyll and headers
+        run: |
+          touch site/dist/.nojekyll
+          cat > site/dist/_headers << EOF
+          /*
+            Cache-Control: public, max-age=0, must-revalidate
+
+          /assets/*
+            Cache-Control: public, max-age=31536000, immutable
+
+          *.css
+            Content-Type: text/css
+
+          *.js
+            Content-Type: application/javascript
+
+          *.svg
+            Content-Type: image/svg+xml
+          EOF
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
