@@ -32,6 +32,8 @@ Ginseng embodies the conviction that users deserve sovereignty over their data a
 
 No accounts. No servers. No gatekeepers. Just cryptographically secure connections between devices you control.
 
+This project is being built in public to democratize access to peer-to-peer tools and knowledge. Open development ensures these technologies remain free and accessible to everyone, not locked behind corporate walls.
+
 ## Quick Start
 
 **Nix Flake** (recommended):
@@ -62,3 +64,5 @@ With direnv: `direnv allow` activates the development environment automatically.
 CI validates TypeScript compilation, Rust formatting, linting, and test suites. Releases trigger automatically on `v*.*.*` tags, generating platform-specific binaries via GitHub Actions.
 
 The Nix flake provides reproducible development environments with Rust toolchain, Bun runtime, and all system dependencies pre-configured.
+
+> **Note**: This is a passion project in active development. I'm currently working through fundamental questions about direction, branding, and vision before opening to broader community contributions. See [CONTRIBUTING.md](CONTRIBUTING.md) for details on how you can help during this phase.
