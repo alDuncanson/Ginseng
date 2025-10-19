@@ -6,6 +6,10 @@ on:
       - "v*.*.*"
   workflow_dispatch:
 
+concurrency:
+  group: "release-${{ github.ref }}"
+  cancel-in-progress: true
+
 jobs:
   create-release:
     name: Create GitHub Release
