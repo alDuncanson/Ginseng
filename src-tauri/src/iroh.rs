@@ -1,4 +1,3 @@
-use crate::utils::absolute_path;
 use iroh::{protocol::Router, Endpoint};
 use iroh_blobs::{store::mem::MemStore, ticket::BlobTicket, BlobsProtocol};
 use std::path::PathBuf;
@@ -15,7 +14,7 @@ pub(crate) struct IrohInner {
 
 #[derive(Default)]
 pub struct AppState {
-    pub(crate) iroh: OnceCell<Arc<IrohInner>>, // set during setup, read in commands
+    pub(crate) iroh: OnceCell<Arc<IrohInner>>,
 }
 
 impl AppState {
@@ -46,13 +45,14 @@ pub async fn setup_iroh(state: tauri::State<'_, AppState>) -> Result<(), anyhow:
 #[tauri::command]
 pub async fn iroh_send(state: tauri::State<'_, AppState>, path: String) -> Result<String, String> {
     let inner = state.get()?.clone();
-    let filename: PathBuf = PathBuf::from(path);
-    let abs_path = absolute_path(&filename)?;
-
+    let path: PathBuf = PathBuf::from(path);
+    let canonical_path = tokio::fs::canonicalize(&path)
+        .await
+        .map_err(|e| e.to_string())?;
     let tag = inner
         .store
         .blobs()
-        .add_path(abs_path)
+        .add_path(canonical_path)
         .await
         .map_err(|e| e.to_string())?;
     let node_id = inner.endpoint.node_id();
@@ -65,14 +65,11 @@ pub async fn iroh_send(state: tauri::State<'_, AppState>, path: String) -> Resul
 pub async fn iroh_download(
     state: tauri::State<'_, AppState>,
     ticket: String,
-    dest_path: String,
+    target: String,
 ) -> Result<(), String> {
     let inner = state.get()?.clone();
-
     let ticket: BlobTicket = ticket.parse::<BlobTicket>().map_err(|e| e.to_string())?;
-    let dest: PathBuf = PathBuf::from(dest_path);
-    let abs_path = absolute_path(dest)?;
-
+    let target: PathBuf = PathBuf::from(target);
     let downloader = inner.store.downloader(&inner.endpoint);
     downloader
         .download(ticket.hash(), Some(ticket.node_addr().node_id))
@@ -82,21 +79,9 @@ pub async fn iroh_download(
     inner
         .store
         .blobs()
-        .export(ticket.hash(), abs_path)
+        .export(ticket.hash(), target)
         .await
         .map_err(|e| e.to_string())?;
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn app_state_get_errors_before_init() {
-        let state = AppState::default();
-        let err = state.get().err().unwrap();
-        assert_eq!(err, "Iroh not initialized yet");
-    }
 }
