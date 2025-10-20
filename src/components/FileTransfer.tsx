@@ -108,9 +108,7 @@ export function FileTransfer() {
 		<div className="max-w-2xl mx-auto p-6">
 			<div className="text-center mb-8">
 				<h1 className="text-3xl font-bold mb-2">Ginseng</h1>
-				<p className="text-muted-foreground">
-					Secure peer-to-peer file sharing
-				</p>
+				<p className="text-muted-foreground">Secure peer-to-peer file sharing</p>
 			</div>
 
 			<Tabs defaultValue="send" className="w-full">
@@ -131,24 +129,14 @@ export function FileTransfer() {
 							<div className="space-y-2">
 								<Label>Select File</Label>
 								<div className="flex gap-2">
-									<Button
-										variant="outline"
-										onClick={selectFile}
-										className="w-full justify-start"
-									>
+									<Button variant="outline" onClick={selectFile} className="w-full justify-start">
 										<File className="h-4 w-4 mr-2" />
-										{selectedFile
-											? getFileName(selectedFile)
-											: "Choose file..."}
+										{selectedFile ? getFileName(selectedFile) : "Choose file..."}
 									</Button>
 								</div>
 							</div>
 
-							<Button
-								onClick={sendFile}
-								disabled={!selectedFile || sendLoading}
-								className="w-full"
-							>
+							<Button onClick={sendFile} disabled={!selectedFile || sendLoading} className="w-full">
 								{sendLoading ? "Generating..." : "Generate Ticket"}
 							</Button>
 
@@ -156,11 +144,7 @@ export function FileTransfer() {
 								<div className="space-y-2">
 									<Label>Share Ticket</Label>
 									<div className="flex gap-2">
-										<Input
-											value={ticket}
-											readOnly
-											className="font-mono text-xs"
-										/>
+										<Input value={ticket} readOnly className="font-mono text-xs" />
 										<Button variant="outline" size="icon" onClick={copyTicket}>
 											<Copy className="h-4 w-4" />
 										</Button>
@@ -196,11 +180,7 @@ export function FileTransfer() {
 							<div className="space-y-2">
 								<Label>Save Location</Label>
 								<div className="flex gap-2">
-									<Input
-										placeholder="Choose where to save..."
-										value={savePath}
-										readOnly
-									/>
+									<Input placeholder="Choose where to save..." value={savePath} readOnly />
 									<Button variant="outline" onClick={chooseSaveLocation}>
 										Browse
 									</Button>

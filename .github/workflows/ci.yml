@@ -13,6 +13,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  frontend-lint:
+    name: Frontend Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install JS dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Lint and format check
+        run: |
+          bun run check
+
   frontend-check:
     name: Frontend Typecheck
     runs-on: ubuntu-latest
@@ -31,6 +50,22 @@ jobs:
       - name: Typecheck frontend
         run: |
           bun x tsc --noEmit
+
+  nix-fmt:
+    name: Nix Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v27
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check Nix formatting
+        run: |
+          nix fmt -- --fail-on-change .
 
   rust-fmt:
     name: Rust Format Check

@@ -7,7 +7,13 @@
 		"dev": "vite",
 		"build": "tsc && vite build",
 		"preview": "vite preview",
-		"tauri": "tauri"
+		"tauri": "tauri",
+		"lint": "biome lint .",
+		"lint:fix": "biome lint --write .",
+		"format": "biome format .",
+		"format:fix": "biome format --write .",
+		"check": "biome check .",
+		"check:fix": "biome check --write .",
 	},
 	"dependencies": {
 		"@radix-ui/react-icons": "^1.3.2",
@@ -29,6 +35,7 @@
 		"tailwindcss": "^4.1.14"
 	},
 	"devDependencies": {
+		"@biomejs/biome": "^2.2.6",
 		"@tauri-apps/cli": "^2",
 		"@types/node": "^24.8.1",
 		"@types/react": "^19.1.8",
