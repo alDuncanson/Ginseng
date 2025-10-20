@@ -46,10 +46,13 @@ pub async fn setup_iroh(state: tauri::State<'_, AppState>) -> Result<(), anyhow:
 pub async fn iroh_send(state: tauri::State<'_, AppState>, path: String) -> Result<String, String> {
     let inner = state.get()?.clone();
     let path: PathBuf = PathBuf::from(path);
+    let canonical_path = tokio::fs::canonicalize(&path)
+        .await
+        .map_err(|e| e.to_string())?;
     let tag = inner
         .store
         .blobs()
-        .add_path(path)
+        .add_path(canonical_path)
         .await
         .map_err(|e| e.to_string())?;
     let node_id = inner.endpoint.node_id();
