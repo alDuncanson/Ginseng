@@ -3,7 +3,6 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { Send, Download, Copy, File } from "lucide-react";
-
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -26,7 +25,7 @@ export function FileTransfer() {
 			});
 			if (file) {
 				setSelectedFile(file as string);
-				setTicket(""); // Clear previous ticket
+				setTicket("");
 			}
 		} catch (error) {
 			toast.error("Failed to select file");
@@ -89,7 +88,7 @@ export function FileTransfer() {
 		try {
 			await invoke("iroh_download", {
 				ticket: receiveTicket,
-				destPath: savePath,
+				target: savePath,
 			});
 			toast.success("File downloaded successfully!");
 			setReceiveTicket("");

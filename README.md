@@ -1,6 +1,9 @@
 > [!WARNING]
 > This project is in early development. Features, stability, and security guarantees are not yet established. Use at your own risk.
 
+> [!NOTE]
+> This is a passion project in active development. While I'm not accepting feature contributions right now as I work through the project's direction and core vision, this is free and open source software—you have every freedom to study it, copy it, run it yourself, and modify it as you see fit. See [CONTRIBUTING.md](CONTRIBUTING.md) for details on how you can help during this phase.
+
 <div align="center">
 
 <img src="src-tauri/icons/128x128.png" alt="Ginseng" width="80" height="80">
@@ -22,11 +25,9 @@
 
 ## Philosophy
 
-Ginseng embodies the conviction that users deserve sovereignty over their data and connections. Built atop [Iroh's](https://iroh.computer) peer-to-peer foundation, it eliminates intermediaries, circumvents surveillance capitalism, and returns computational autonomy to individuals. Your devices communicate directly—encrypted, authenticated, unmediated—transforming powerful hardware into genuine peers rather than subordinate clients.
+Ginseng is built on the idea that file sharing should be simple and direct. Using [Iroh's](https://iroh.computer) peer-to-peer networking, your devices connect to each other without relying on third-party servers or accounts. Files are encrypted and authenticated, traveling directly between devices.
 
-No accounts. No servers. No gatekeepers. Just cryptographically secure connections between devices you control.
-
-This project is being built in public to democratize access to peer-to-peer tools and knowledge. Open development ensures these technologies remain free and accessible to everyone, not locked behind corporate walls.
+This approach offers privacy by design—no data passes through external services, and no accounts or profiles are required. The project is developed openly to keep these tools accessible and transparent.
 
 ## Quick Start
 
@@ -58,8 +59,6 @@ With direnv: `direnv allow` activates the development environment automatically.
 CI validates TypeScript compilation, Rust formatting, linting, and test suites. Releases trigger automatically on `v*.*.*` tags, generating platform-specific binaries via GitHub Actions.
 
 The Nix flake provides reproducible development environments with Rust toolchain, Bun runtime, and all system dependencies pre-configured.
-
-> **Note**: This is a passion project in active development. I'm currently working through fundamental questions about direction, branding, and vision before opening to broader community contributions. See [CONTRIBUTING.md](CONTRIBUTING.md) for details on how you can help during this phase.
 
 ## Community
 
