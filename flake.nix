@@ -26,7 +26,11 @@
         };
 
         rustToolchain = pkgs.rust-bin.stable.latest.default.override {
-          extensions = [ "rust-src" "rustfmt" "clippy" ];
+          extensions = [
+            "rust-src"
+            "rustfmt"
+            "clippy"
+          ];
         };
 
         commonInputs = with pkgs; [
