@@ -43,23 +43,15 @@
           RUST_BACKTRACE = "1";
 
           shellHook = ''
+            echo ""
             echo "🌿 Welcome to the Ginseng dev shell"
             echo ""
-            echo "Nix development commands:"
+            echo "Development commands:"
             echo "  nix run .#dev               # run Tauri dev mode"
             echo "  nix run .#build             # build Tauri release bundles"
             echo "  nix run .#test              # run Rust tests"
             echo "  nix run .#format .          # format Nix files"
             echo ""
-            echo "Common tasks (cargo-first):"
-            echo "  cargo build --manifest-path src-tauri/Cargo.toml    # build Rust backend"
-            echo "  cargo test  --manifest-path src-tauri/Cargo.toml    # run Rust tests"
-            echo "  cargo clippy --manifest-path src-tauri/Cargo.toml   # lint Rust"
-            echo ""
-            echo "Tauri (requires Bun for frontend tooling):"
-            echo "  bun install                 # install JS deps"
-            echo "  bun run tauri dev           # run Tauri dev"
-            echo "  bun run tauri build         # build Tauri bundles"
           '';
         };
 
