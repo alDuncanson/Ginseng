@@ -28,6 +28,7 @@ export function FileTransfer() {
 				setTicket("");
 			}
 		} catch (error) {
+			console.error("Failed to select file:", error);
 			toast.error("Failed to select file");
 		}
 	};
@@ -57,6 +58,7 @@ export function FileTransfer() {
 			await navigator.clipboard.writeText(ticket);
 			toast.success("Ticket copied to clipboard");
 		} catch (error) {
+			console.error("Failed to copy ticket:", error);
 			toast.error("Failed to copy ticket");
 		}
 	};
@@ -70,6 +72,7 @@ export function FileTransfer() {
 				setSavePath(path);
 			}
 		} catch (error) {
+			console.error("Failed to choose save location:", error);
 			toast.error("Failed to choose save location");
 		}
 	};
