@@ -61,3 +61,11 @@ bun install
 ```bash
 bun x tauri dev
 ```
+
+## Disclaimer
+
+I, like many others, use AI tools to help write documentation. While I strive to ensure accuracy, please be aware that AI-generated content may contain errors.
+
+If you notice anything wrong, outdated, unclear, or whatever, let me know!
+
+I'm only human.
