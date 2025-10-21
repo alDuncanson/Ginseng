@@ -7,16 +7,13 @@ function App() {
 				<div className="container">
 					<header className="header">
 						<h1 className="title">Ginseng</h1>
-						<p className="subtitle">
-							Peer-to-peer file sharing with cryptographic sovereignty
-						</p>
+						<p className="subtitle">Peer-to-peer file sharing with cryptographic sovereignty</p>
 					</header>
 
 					<div className="content">
 						<p className="description">
-							Eliminate intermediaries and restore user agency through direct,
-							encrypted file transfers. Built with Rust, React, and Iroh's P2P
-							foundation.
+							Eliminate intermediaries and restore user agency through direct, encrypted file
+							transfers. Built with Rust, React, and Iroh's P2P foundation.
 						</p>
 
 						<div className="actions">

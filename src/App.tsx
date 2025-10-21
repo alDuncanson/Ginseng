@@ -1,6 +1,6 @@
 import "./App.css";
-import { Toaster } from "@/components/ui/sonner";
 import { FileTransfer } from "@/components/FileTransfer";
+import { Toaster } from "@/components/ui/sonner";
 
 function App() {
 	return (
