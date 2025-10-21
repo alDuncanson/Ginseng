@@ -79,7 +79,3 @@ If community contributions do become welcome in the future, I'll update this doc
 ## Philosophy in Practice
 
 Ginseng exists to give people better tools for connecting and sharing, free from corporate gatekeepers. Every technical decision should serve that goal. Your respect for this development approach helps maintain the focus needed to explore what this project could become, even if the final vision differs from current expectations.
-
----
-
-*For more context on the project's philosophical foundations, see [AGENTS.md](AGENTS.md).*
