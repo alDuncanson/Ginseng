@@ -1,8 +1,8 @@
-import { useState } from "react";
-import { open, save } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
+import { open, save } from "@tauri-apps/plugin-dialog";
+import { Copy, Download, File, Send } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
-import { Send, Download, Copy, File } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
