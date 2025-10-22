@@ -62,6 +62,10 @@ bun install
 bun x tauri dev
 ```
 
+## Community
+
+Join the conversation in GitHub Discussions to share ideas, provide feedback, or discuss peer-to-peer technology and digital sovereignty.
+
 ## Disclaimer
 
 I, like many others, use AI tools to help write documentation. While I strive to ensure accuracy, please be aware that AI-generated content may contain errors.
