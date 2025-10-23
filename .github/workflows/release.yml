@@ -55,7 +55,6 @@ jobs:
           - platform: windows-latest
             args: ""
     runs-on: ${{ matrix.platform }}
-    timeout-minutes: 60
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
