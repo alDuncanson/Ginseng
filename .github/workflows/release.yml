@@ -36,6 +36,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build-tauri:
+    permissions:
+      contents: write
     name: Build Tauri artifacts
     needs: create-release
     strategy:
@@ -44,8 +46,10 @@ jobs:
         include:
           - platform: macos-latest
             args: "--target x86_64-apple-darwin"
+            arch: "intel"
           - platform: macos-latest
             args: "--target aarch64-apple-darwin"
+            arch: "silicon"
           - platform: ubuntu-latest
             args: ""
           - platform: windows-latest
@@ -87,7 +91,15 @@ jobs:
       - name: Tauri build
         uses: tauri-apps/tauri-action@v0
         env:
+          ENABLE_CODE_SIGNING: ${{ secrets.APPLE_CERTIFICATE != '' }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+          APPLE_CERTIFICATE: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_TEAM_ID: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_TEAM_ID }}
         with:
           tagName: ${{ github.ref_name }}
           releaseId: ${{ needs.create-release.outputs.release_id }}

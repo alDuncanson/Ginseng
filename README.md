@@ -1,8 +1,8 @@
 > [!WARNING]
-> This project is in early development. Features, stability, and security guarantees are not yet established. Use at your own risk.
+> This project is in beta! I just wanted to build in public as I worked through some ideas around peer-to-peer file sharing. Expect bugs, incomplete features, and breaking changes. Use at your own risk.
 
 > [!NOTE]
-> This is a passion project in active development. While I'm not accepting feature contributions right now as I work through the project's direction and core vision, this is free and open source software—you have every freedom to study it, copy it, run it yourself, and modify it as you see fit. See [CONTRIBUTING.md](CONTRIBUTING.md) for details on how you can help during this phase.
+> This is a passion project in active development. While I'm not accepting feature contributions right now, this is free and open source software—you have every freedom to study it, copy it, modify it, and run it yourself. See the [LICENSE](LICENSE) for details.
 
 <div align="center">
 
@@ -27,39 +27,49 @@
 
 Ginseng is built on the idea that file sharing should be simple and direct. Using [Iroh's](https://iroh.computer) peer-to-peer networking, your devices connect to each other without relying on third-party servers or accounts. Files are encrypted and authenticated, traveling directly between devices.
 
-This approach offers privacy by design—no data passes through external services, and no accounts or profiles are required. The project is developed openly to keep these tools accessible and transparent.
+This approach offers privacy by design—no data passes through external services, and no accounts or profiles are required. Ginseng is developed openly to keep these tools accessible and transparent.
 
 ## Quick Start
 
-**Nix Flake** (recommended):
+### With Nix:
+
+Ginseng uses Nix Flakes for reproducible development environments:
+
 ```bash
 nix develop               # Enter development shell
 nix run .#dev             # Launch development build
 nix run .#build           # Create release bundles
+nix run .#test            # Run test suites
+nix run .#format          # Run formatters and linters
 ```
 
-**Manual Setup**:
+### Without Nix:
+1. Install [Rust](https://www.rust-lang.org/tools/install) and [Bun](https://bun.sh/).
+
+2. Clone the repository:
 ```bash
-bun install               # Install dependencies  
-bun run tauri dev         # Development server
-bun run tauri build       # Production build
+git clone https://github.com/alDuncanson/ginseng.git
+cd ginseng
 ```
 
-With direnv: `direnv allow` activates the development environment automatically.
+3. Install dependencies:
+```bash
+bun install
+```
 
-## Architecture
-
-- **Frontend**: React 19 + TypeScript + Vite
-- **Backend**: Rust + Tauri 2.0 + Iroh networking
-- **Build System**: Nix Flakes + Bun + Cargo
-- **Platforms**: macOS, Linux, Windows (native bundles)
-
-## Development
-
-CI validates TypeScript compilation, Rust formatting, linting, and test suites. Releases trigger automatically on `v*.*.*` tags, generating platform-specific binaries via GitHub Actions.
-
-The Nix flake provides reproducible development environments with Rust toolchain, Bun runtime, and all system dependencies pre-configured.
+4. Start development build:
+```bash
+bun x tauri dev
+```
 
 ## Community
 
-Join the conversation in [GitHub Discussions](https://github.com/alDuncanson/ginseng/discussions) to share ideas, provide feedback, or discuss peer-to-peer technology and digital sovereignty.
+Join the conversation in GitHub Discussions to share ideas, provide feedback, or discuss peer-to-peer technology and digital sovereignty.
+
+## Disclaimer
+
+I, like many others, use AI tools to help write documentation. While I strive to ensure accuracy, please be aware that AI-generated content may contain errors.
+
+If you notice anything wrong, outdated, unclear, or whatever, let me know!
+
+I'm only human.
