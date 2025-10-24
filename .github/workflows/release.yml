@@ -91,7 +91,7 @@ jobs:
       - name: Tauri build
         uses: tauri-apps/tauri-action@v0
         env:
-          ENABLE_CODE_SIGNING: ${{ secrets.APPLE_CERTIFICATE }}
+          ENABLE_CODE_SIGNING: ${{ secrets.APPLE_CERTIFICATE != '' }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
           APPLE_CERTIFICATE: ${{ matrix.platform == 'macos-latest' && secrets.APPLE_CERTIFICATE }}
