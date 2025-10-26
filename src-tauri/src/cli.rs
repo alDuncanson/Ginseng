@@ -57,7 +57,7 @@ async fn handle_send(ginseng: GinsengCore, path: PathBuf) -> Result<()> {
         anyhow::bail!("Path does not exist: {}", path.display());
     }
 
-    let ticket = ginseng.share_file(path.clone()).await?;
+    let ticket = ginseng.share_files(vec![path.clone()]).await?;
 
     println!("{}", ticket);
 
@@ -66,34 +66,39 @@ async fn handle_send(ginseng: GinsengCore, path: PathBuf) -> Result<()> {
     Ok(())
 }
 
-async fn handle_receive(ginseng: GinsengCore, ticket: String, output: PathBuf) -> Result<()> {
-    let output_abs = if output.is_absolute() {
-        output
-    } else {
-        std::env::current_dir()?.join(output)
-    };
+async fn handle_receive(ginseng: GinsengCore, ticket: String, _output: PathBuf) -> Result<()> {
+    let (metadata, actual_download_path) = ginseng.download_files(ticket).await?;
 
-    let download_path = if output_abs.is_dir() || output_abs == std::env::current_dir()?.join(".") {
-        if !output_abs.exists() {
-            tokio::fs::create_dir_all(&output_abs).await?;
-        }
-        output_abs.join("downloaded_file")
-    } else {
-        if let Some(parent) = output_abs.parent() {
-            if !parent.exists() {
-                tokio::fs::create_dir_all(parent).await?;
-            }
-        }
-        output_abs
-    };
-
-    ginseng.download_file(ticket, download_path).await?;
+    println!(
+        "Downloaded {} files to: {}",
+        metadata.files.len(),
+        actual_download_path.display()
+    );
+    for file_info in &metadata.files {
+        println!(
+            "  - {} ({})",
+            file_info.relative_path,
+            format_size(file_info.size)
+        );
+    }
 
     Ok(())
 }
 
 async fn handle_info(ginseng: GinsengCore) -> Result<()> {
-    ginseng.node_info().await?;
+    let info = ginseng.node_info().await?;
+    println!("{}", info);
 
     Ok(())
+}
+
+fn format_size(bytes: u64) -> String {
+    if bytes == 0 {
+        return "0 B".to_string();
+    }
+    let k = 1024u64;
+    let sizes = ["B", "KB", "MB", "GB"];
+    let i = (bytes as f64).log(k as f64).floor() as usize;
+    let size = bytes as f64 / k.pow(i as u32) as f64;
+    format!("{:.2} {}", size, sizes[i])
 }

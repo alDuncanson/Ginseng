@@ -17,7 +17,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::share_file,
+            commands::share_files,
             commands::download_file,
+            commands::download_files,
             commands::node_info
         ])
         .run(tauri::generate_context!())
