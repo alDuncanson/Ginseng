@@ -27,8 +27,7 @@ export function FileTransfer() {
 				setSelectedFile(file as string);
 				setTicket("");
 			}
-		} catch (error) {
-			console.error("Failed to select file:", error);
+		} catch {
 			toast.error("Failed to select file");
 		}
 	};
@@ -41,7 +40,7 @@ export function FileTransfer() {
 
 		setSendLoading(true);
 		try {
-			const generatedTicket = await invoke<string>("iroh_send", {
+			const generatedTicket = await invoke<string>("share_file", {
 				path: selectedFile,
 			});
 			setTicket(generatedTicket);
@@ -57,8 +56,7 @@ export function FileTransfer() {
 		try {
 			await navigator.clipboard.writeText(ticket);
 			toast.success("Ticket copied to clipboard");
-		} catch (error) {
-			console.error("Failed to copy ticket:", error);
+		} catch {
 			toast.error("Failed to copy ticket");
 		}
 	};
@@ -71,8 +69,7 @@ export function FileTransfer() {
 			if (path) {
 				setSavePath(path);
 			}
-		} catch (error) {
-			console.error("Failed to choose save location:", error);
+		} catch {
 			toast.error("Failed to choose save location");
 		}
 	};
@@ -89,7 +86,7 @@ export function FileTransfer() {
 
 		setReceiveLoading(true);
 		try {
-			await invoke("iroh_download", {
+			await invoke("download_file", {
 				ticket: receiveTicket,
 				target: savePath,
 			});
