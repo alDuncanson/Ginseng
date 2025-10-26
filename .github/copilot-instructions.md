@@ -22,6 +22,9 @@ Peer-to-peer file sharing app: Rust (Tauri) + React/TypeScript + Iroh networking
 - `anyhow = "1.0.100"` - Error handling
 - `bun` - Package manager and build tool (use instead of npm)
 
+## UI Components
+**shadcn/ui**: Use shadcn for new UI components. Add with `bunx --bun shadcn@latest add <component>` (e.g., `bunx --bun shadcn@latest add accordion`). Components are in `src/components/ui/`.
+
 ## Requirements
 - No servers, accounts, or central coordination
 - Direct peer connections only

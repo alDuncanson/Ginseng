@@ -8,7 +8,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    fn get(&self) -> Result<&Arc<GinsengCore>, String> {
+    fn get_core(&self) -> Result<&Arc<GinsengCore>, String> {
         self.core
             .get()
             .ok_or_else(|| "Ginseng core not initialized yet".to_string())
@@ -31,18 +31,13 @@ pub async fn share_files(
     state: tauri::State<'_, AppState>,
     paths: Vec<String>,
 ) -> Result<String, String> {
-    let core = state.get()?;
+    let core = state.get_core()?;
 
-    let path_bufs: Result<Vec<std::path::PathBuf>, String> = paths
-        .iter()
-        .map(|path| {
-            std::fs::canonicalize(path).map_err(|e| format!("Invalid file path '{}': {}", path, e))
-        })
-        .collect();
+    let validated_paths = validate_and_canonicalize_paths(paths)?;
 
-    let path_bufs = path_bufs?;
-
-    core.share_files(path_bufs).await.map_err(|e| e.to_string())
+    core.share_files(validated_paths)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -50,7 +45,7 @@ pub async fn download_files(
     state: tauri::State<'_, AppState>,
     ticket: String,
 ) -> Result<DownloadResult, String> {
-    let core = state.get()?;
+    let core = state.get_core()?;
 
     let (metadata, target_dir) = core
         .download_files(ticket)
@@ -65,7 +60,7 @@ pub async fn download_files(
 
 #[tauri::command]
 pub async fn node_info(state: tauri::State<'_, AppState>) -> Result<String, String> {
-    let core = state.get()?;
+    let core = state.get_core()?;
 
     core.node_info().await.map_err(|e| e.to_string())
 }
@@ -76,7 +71,6 @@ pub struct DownloadResult {
     pub download_path: String,
 }
 
-// Legacy commands for backward compatibility
 #[tauri::command]
 pub async fn share_file(state: tauri::State<'_, AppState>, path: String) -> Result<String, String> {
     share_files(state, vec![path]).await
@@ -86,8 +80,17 @@ pub async fn share_file(state: tauri::State<'_, AppState>, path: String) -> Resu
 pub async fn download_file(
     state: tauri::State<'_, AppState>,
     ticket: String,
-    _target: String, // Ignored - we now auto-download to Downloads folder
+    _target: String,
 ) -> Result<(), String> {
     let _result = download_files(state, ticket).await?;
     Ok(())
+}
+
+fn validate_and_canonicalize_paths(paths: Vec<String>) -> Result<Vec<std::path::PathBuf>, String> {
+    paths
+        .iter()
+        .map(|path| {
+            std::fs::canonicalize(path).map_err(|e| format!("Invalid file path '{}': {}", path, e))
+        })
+        .collect()
 }

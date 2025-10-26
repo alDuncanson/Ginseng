@@ -1,8 +1,8 @@
 mod commands;
-mod core;
+pub mod core;
 use tauri::Manager;
 
-pub use core::GinsengCore;
+pub use core::{GinsengCore, ShareType};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
