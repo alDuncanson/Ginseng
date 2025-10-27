@@ -1,20 +1,28 @@
-mod iroh;
+mod commands;
+pub mod core;
+mod state;
+mod utils;
 use tauri::Manager;
+
+pub use core::{GinsengCore, ShareType};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .manage(iroh::AppState::default())
+        .manage(state::AppState::default())
         .setup(|app| {
-            let state = app.state::<iroh::AppState>();
-            tauri::async_runtime::block_on(iroh::setup_iroh(state))?;
+            let state = app.state::<state::AppState>();
+            tauri::async_runtime::block_on(state::setup_ginseng(state))?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            iroh::iroh_send,
-            iroh::iroh_download
+            commands::share_file,
+            commands::share_files,
+            commands::download_file,
+            commands::download_files,
+            commands::node_info
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
