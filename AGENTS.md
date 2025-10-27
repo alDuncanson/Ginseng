@@ -33,8 +33,18 @@ Peer-to-peer file sharing app: Rust (Tauri) + React/TypeScript + Iroh networking
 
 **Security**: Validate file paths with `canonicalize()`. Never bypass Iroh encryption. No plaintext transmission.
 
+## Build & Verification
+**DO NOT run `cargo build`** - Tauri app signing fails locally and only works in CI.
+
+**Instead, verify your work with:**
+- `cargo check` - Fast compilation check
+- `cargo test` - Run all tests
+- `cargo clippy` - Lint and catch issues
+- `cargo fmt` - Code formatting
+- `bun run check:fix` - Frontend formatting and linting with Biome
+
 ## Key Dependencies
-- `iroh = "0.93.2"` - P2P networking
+- `iroh = "0.94.0"` - P2P networking
 - `tauri = "2"` - Native framework  
 - `react = "^19.1.0"` - Frontend
 - `anyhow = "1.0.100"` - Error handling

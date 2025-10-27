@@ -213,7 +213,6 @@ async fn create_endpoint() -> Result<Endpoint> {
     Endpoint::builder()
         .alpns(vec![iroh_blobs::protocol::ALPN.to_vec()])
         .relay_mode(RelayMode::Default)
-        .discovery_n0()
         .bind()
         .await
         .map_err(|error| anyhow::anyhow!("Failed to create endpoint: {}", error))
@@ -453,8 +452,8 @@ fn create_share_ticket(
     bundle_hash: &Hash,
     bundle_format: &iroh_blobs::BlobFormat,
 ) -> Result<String> {
-    let node_addr = endpoint.node_addr();
-    let ticket = BlobTicket::new(node_addr, *bundle_hash, *bundle_format);
+    let endpoint_addr = endpoint.addr();
+    let ticket = BlobTicket::new(endpoint_addr, *bundle_hash, *bundle_format);
     Ok(ticket.to_string())
 }
 
@@ -483,7 +482,7 @@ async fn download_and_parse_bundle(
 /// Establishes a P2P connection to the node specified in the ticket.
 async fn establish_connection(endpoint: &Endpoint, ticket: &BlobTicket) -> Result<Connection> {
     endpoint
-        .connect(ticket.node_addr().clone(), iroh_blobs::protocol::ALPN)
+        .connect(ticket.addr().clone(), iroh_blobs::protocol::ALPN)
         .await
         .map_err(|error| anyhow::anyhow!("Failed to establish connection: {}", error))
 }
@@ -492,7 +491,7 @@ async fn establish_connection(endpoint: &Endpoint, ticket: &BlobTicket) -> Resul
 async fn download_blob(endpoint: &Endpoint, store: &MemStore, ticket: &BlobTicket) -> Result<()> {
     let downloader = store.downloader(endpoint);
     downloader
-        .download(ticket.hash(), Some(ticket.node_addr().node_id))
+        .download(ticket.hash(), Some(ticket.addr().id))
         .await
 }
 
@@ -553,7 +552,7 @@ async fn download_all_files(
         })?;
 
         downloader
-            .download(file_hash, Some(ticket.node_addr().node_id))
+            .download(file_hash, Some(ticket.addr().id))
             .await
             .map_err(|error| {
                 anyhow::anyhow!(
@@ -627,14 +626,14 @@ async fn ensure_parent_directory_exists(file_path: &Path) -> Result<()> {
 
 /// Formats node information for display, including ID, addresses, and relay.
 fn format_node_info(endpoint: &Endpoint) -> Result<String> {
-    let node_id = endpoint.node_id();
-    let endpoint_addr = endpoint.node_addr();
+    let endpoint_id = endpoint.id();
+    let endpoint_addr = endpoint.addr();
 
     Ok(format!(
-        "Node ID: {}\nDirect addresses: {:?}\nRelay URL: {:?}",
-        node_id,
-        endpoint_addr.direct_addresses().collect::<Vec<_>>(),
-        endpoint_addr.relay_url()
+        "Endpoint ID: {}\nDirect addresses: {:?}\nRelay URL: {:?}",
+        endpoint_id,
+        endpoint_addr.ip_addrs().collect::<Vec<_>>(),
+        endpoint_addr.relay_urls().next()
     ))
 }
 
@@ -692,8 +691,8 @@ mod tests {
             std::fs::write(&temp_file, "dummy").unwrap();
 
             let dummy_hash = iroh_blobs::Hash::new([0u8; 32]);
-            let dummy_node_id = iroh::NodeId::from_bytes(&[1u8; 32]).unwrap();
-            let dummy_addr = iroh::NodeAddr::new(dummy_node_id);
+            let dummy_endpoint_id = iroh::EndpointId::from_bytes(&[1u8; 32]).unwrap();
+            let dummy_addr = iroh::EndpointAddr::new(dummy_endpoint_id);
             BlobTicket::new(dummy_addr, dummy_hash, iroh_blobs::BlobFormat::Raw)
         });
 
