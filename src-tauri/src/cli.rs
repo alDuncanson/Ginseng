@@ -217,6 +217,7 @@ fn calculate_directory_summary(dir: &PathBuf) -> Result<DirectorySummary> {
     })
 }
 
+// Keep in sync with formatFileSize in FileTransfer.tsx
 fn format_file_size(bytes: u64) -> String {
     if bytes == 0 {
         return "0 B".to_string();
