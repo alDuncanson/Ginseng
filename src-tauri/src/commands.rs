@@ -1,31 +1,17 @@
-use crate::core::{GinsengCore, ShareMetadata};
-use std::sync::Arc;
-use tokio::sync::OnceCell;
+use crate::state::{AppState, DownloadResult};
+use crate::utils::validate_and_canonicalize_paths;
 
-#[derive(Default)]
-pub struct AppState {
-    pub(crate) core: OnceCell<Arc<GinsengCore>>,
-}
-
-impl AppState {
-    fn get_core(&self) -> Result<&Arc<GinsengCore>, String> {
-        self.core
-            .get()
-            .ok_or_else(|| "Ginseng core not initialized yet".to_string())
-    }
-}
-
-pub async fn setup_ginseng(state: tauri::State<'_, AppState>) -> Result<(), anyhow::Error> {
-    let core = GinsengCore::new().await?;
-
-    state
-        .core
-        .set(Arc::new(core))
-        .map_err(|_| anyhow::anyhow!("Ginseng core already initialized"))?;
-
-    Ok(())
-}
-
+/// Share multiple files and return a ticket for downloading
+///
+/// # Arguments
+/// * `state` - The Tauri application state
+/// * `paths` - Vector of file paths to share
+///
+/// # Returns
+/// A ticket string that can be used to download the files
+///
+/// # Errors
+/// Returns an error if core is not initialized, paths are invalid, or sharing fails
 #[tauri::command]
 pub async fn share_files(
     state: tauri::State<'_, AppState>,
@@ -37,9 +23,20 @@ pub async fn share_files(
 
     core.share_files(validated_paths)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|error| error.to_string())
 }
 
+/// Download files using a ticket
+///
+/// # Arguments
+/// * `state` - The Tauri application state
+/// * `ticket` - The ticket string for the files to download
+///
+/// # Returns
+/// DownloadResult containing metadata and download path
+///
+/// # Errors
+/// Returns an error if core is not initialized or download fails
 #[tauri::command]
 pub async fn download_files(
     state: tauri::State<'_, AppState>,
@@ -50,7 +47,7 @@ pub async fn download_files(
     let (metadata, target_dir) = core
         .download_files(ticket)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|error| error.to_string())?;
 
     Ok(DownloadResult {
         metadata,
@@ -58,24 +55,51 @@ pub async fn download_files(
     })
 }
 
+/// Get information about the current node
+///
+/// # Arguments
+/// * `state` - The Tauri application state
+///
+/// # Returns
+/// Node information as a string
+///
+/// # Errors
+/// Returns an error if core is not initialized or node info retrieval fails
 #[tauri::command]
 pub async fn node_info(state: tauri::State<'_, AppState>) -> Result<String, String> {
     let core = state.get_core()?;
 
-    core.node_info().await.map_err(|e| e.to_string())
+    core.node_info().await.map_err(|error| error.to_string())
 }
 
-#[derive(serde::Serialize)]
-pub struct DownloadResult {
-    pub metadata: ShareMetadata,
-    pub download_path: String,
-}
-
+/// Share a single file (convenience wrapper around share_files)
+///
+/// # Arguments
+/// * `state` - The Tauri application state
+/// * `path` - Path to the file to share
+///
+/// # Returns
+/// A ticket string that can be used to download the file
+///
+/// # Errors
+/// Returns an error if core is not initialized, path is invalid, or sharing fails
 #[tauri::command]
 pub async fn share_file(state: tauri::State<'_, AppState>, path: String) -> Result<String, String> {
     share_files(state, vec![path]).await
 }
 
+/// Download a file using a ticket (convenience wrapper around download_files)
+///
+/// # Arguments
+/// * `state` - The Tauri application state
+/// * `ticket` - The ticket string for the file to download
+/// * `_target` - Target path (currently unused, kept for API compatibility)
+///
+/// # Returns
+/// Ok(()) if download succeeds
+///
+/// # Errors
+/// Returns an error if core is not initialized or download fails
 #[tauri::command]
 pub async fn download_file(
     state: tauri::State<'_, AppState>,
@@ -84,13 +108,4 @@ pub async fn download_file(
 ) -> Result<(), String> {
     let _result = download_files(state, ticket).await?;
     Ok(())
-}
-
-fn validate_and_canonicalize_paths(paths: Vec<String>) -> Result<Vec<std::path::PathBuf>, String> {
-    paths
-        .iter()
-        .map(|path| {
-            std::fs::canonicalize(path).map_err(|e| format!("Invalid file path '{}': {}", path, e))
-        })
-        .collect()
 }

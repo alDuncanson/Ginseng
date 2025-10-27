@@ -38,8 +38,8 @@ enum Commands {
 async fn main() {
     let args = Args::parse();
 
-    if let Err(e) = run(args).await {
-        eprintln!("Error: {}", e);
+    if let Err(error) = run(args).await {
+        eprintln!("Error: {}", error);
         std::process::exit(1);
     }
 }

@@ -1,5 +1,7 @@
 mod commands;
 pub mod core;
+mod state;
+mod utils;
 use tauri::Manager;
 
 pub use core::{GinsengCore, ShareType};
@@ -9,10 +11,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .manage(commands::AppState::default())
+        .manage(state::AppState::default())
         .setup(|app| {
-            let state = app.state::<commands::AppState>();
-            tauri::async_runtime::block_on(commands::setup_ginseng(state))?;
+            let state = app.state::<state::AppState>();
+            tauri::async_runtime::block_on(state::setup_ginseng(state))?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
