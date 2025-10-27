@@ -493,6 +493,7 @@ async fn download_blob(endpoint: &Endpoint, store: &MemStore, ticket: &BlobTicke
     downloader
         .download(ticket.hash(), Some(ticket.addr().id))
         .await
+        .map_err(|error| anyhow::anyhow!("Failed to download blob: {}", error))
 }
 
 /// Exports a blob to a temporary file, parses it as JSON, and cleans up.
