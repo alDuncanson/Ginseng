@@ -67,8 +67,8 @@ export function FileTransfer() {
 		}
 	};
 
-	const removeFile = (index: number) => {
-		const newPaths = selectedPaths.filter((_, i) => i !== index);
+	const removeFile = (pathToRemove: string) => {
+		const newPaths = selectedPaths.filter((path) => path !== pathToRemove);
 		setSelectedPaths(newPaths);
 		if (newPaths.length === 0) {
 			setTicket("");
@@ -134,7 +134,7 @@ export function FileTransfer() {
 		const k = 1024;
 		const sizes = ["B", "KB", "MB", "GB"];
 		const i = Math.floor(Math.log(bytes) / Math.log(k));
-		return parseFloat((bytes / k ** i).toFixed(2)) + " " + sizes[i];
+		return `${parseFloat((bytes / k ** i).toFixed(2))} ${sizes[i]}`;
 	};
 
 	const getShareTypeDisplay = (shareType: ShareMetadata["share_type"]) => {
@@ -195,9 +195,9 @@ export function FileTransfer() {
 								<div className="space-y-2">
 									<Label>Selected Items ({selectedPaths.length})</Label>
 									<div className="max-h-40 overflow-y-auto space-y-1 p-2 border rounded">
-										{selectedPaths.map((path, index) => (
+										{selectedPaths.map((path) => (
 											<div
-												key={index}
+												key={path}
 												className="flex items-center justify-between p-2 bg-muted rounded text-sm"
 											>
 												<div className="flex items-center gap-2 flex-1 min-w-0">
@@ -209,7 +209,7 @@ export function FileTransfer() {
 												<Button
 													variant="ghost"
 													size="sm"
-													onClick={() => removeFile(index)}
+													onClick={() => removeFile(path)}
 													className="h-6 w-6 p-0 flex-shrink-0"
 												>
 													<X className="h-3 w-3" />
@@ -309,9 +309,9 @@ export function FileTransfer() {
 										<div className="space-y-1">
 											<span className="text-sm font-medium">Files:</span>
 											<div className="max-h-32 overflow-y-auto space-y-1">
-												{lastDownload.metadata.files.map((file, index) => (
+												{lastDownload.metadata.files.map((file) => (
 													<div
-														key={index}
+														key={file.relative_path}
 														className="flex items-center justify-between text-xs p-1 bg-background rounded"
 													>
 														<span className="truncate" title={file.relative_path}>
