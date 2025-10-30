@@ -7,13 +7,12 @@ function App() {
 				<div className="container">
 					<header className="header">
 						<h1 className="title">Ginseng</h1>
-						<p className="subtitle">Peer-to-peer file sharing with cryptographic sovereignty</p>
+						<p className="subtitle">Free and direct file sharing, globally.</p>
 					</header>
 
 					<div className="content">
 						<p className="description">
-							Eliminate intermediaries and restore user agency through direct, encrypted file
-							transfers. Built with Rust, React, and Iroh's P2P foundation.
+							Share files directly from your device—for free—with anyone, anywhere on the planet.
 						</p>
 
 						<div className="actions">
@@ -38,13 +37,13 @@ function App() {
 
 					<footer className="footer">
 						<p>
-							Open source •
+							Free and open source software •
 							<a
 								href="https://github.com/alDuncanson/ginseng"
 								target="_blank"
 								rel="noopener noreferrer"
 							>
-								View on GitHub
+								View source
 							</a>
 						</p>
 					</footer>

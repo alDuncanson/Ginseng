@@ -7,6 +7,7 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependency directories
 node_modules
 dist
 dist-ssr
@@ -25,3 +26,6 @@ dist-ssr
 
 # Nix/direnv cache
 .direnv
+
+# Rust Analyzer files
+target/rust-analyzer/
