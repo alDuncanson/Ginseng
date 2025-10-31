@@ -159,11 +159,6 @@ export function FileTransfer() {
 
 	return (
 		<div className="max-w-2xl mx-auto p-6">
-			<div className="text-center mb-8">
-				<h1 className="text-3xl font-bold mb-2">Ginseng</h1>
-				<p className="text-muted-foreground">Secure peer-to-peer file sharing</p>
-			</div>
-
 			<Tabs defaultValue="send" className="w-full">
 				<TabsList className="grid w-full grid-cols-2">
 					<TabsTrigger value="send">Send</TabsTrigger>
