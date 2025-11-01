@@ -1,3 +1,4 @@
+use crate::commands::DownloadEvent;
 use crate::utils::{
     calculate_relative_path, calculate_total_size, extract_directory_name, extract_file_name,
     get_downloads_directory, validate_paths_not_empty,
@@ -7,6 +8,7 @@ use iroh::{endpoint::Connection, protocol::Router, Endpoint, RelayMode};
 use iroh_blobs::{store::mem::MemStore, ticket::BlobTicket, BlobsProtocol, Hash};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use tauri::ipc::Channel;
 use tokio::fs;
 use walkdir::WalkDir;
 
@@ -114,6 +116,7 @@ impl GinsengCore {
     ///
     /// # Arguments
     ///
+    /// * `channel` - Channel to send download events
     /// * `paths` - Vector of file or directory paths to share
     ///
     /// # Returns
@@ -127,18 +130,63 @@ impl GinsengCore {
     /// - Any path doesn't exist or isn't accessible
     /// - File content cannot be stored as blobs
     /// - Metadata cannot be serialized or stored
-    pub async fn share_files(&self, paths: Vec<PathBuf>) -> Result<String> {
+    pub async fn share_files(
+        &self,
+        channel: &Channel<DownloadEvent<'_>>,
+        paths: Vec<PathBuf>,
+    ) -> Result<String> {
         validate_paths_not_empty(&paths)?;
 
+        channel
+            .send(DownloadEvent::Progress {
+                detail: "Creating share metadata",
+            })
+            .unwrap();
+
         let metadata = create_share_metadata(&self.blobs, &paths).await?;
+
+        channel
+            .send(DownloadEvent::Progress {
+                detail: "Storing share bundle",
+            })
+            .unwrap();
+
         let metadata_hash = store_metadata_as_blob(&self.blobs, &metadata).await?;
+
+        channel
+            .send(DownloadEvent::Progress {
+                detail: "Generating share ticket",
+            })
+            .unwrap();
+
         let bundle = ShareBundle {
             metadata,
             metadata_hash,
         };
+
+        channel
+            .send(DownloadEvent::Progress {
+                detail: "Storing bundle as blob",
+            })
+            .unwrap();
+
         let (bundle_hash, bundle_format) = store_bundle_as_blob(&self.blobs, &bundle).await?;
 
-        create_share_ticket(&self.endpoint, &bundle_hash, &bundle_format)
+        channel
+            .send(DownloadEvent::Progress {
+                detail: "Creating share ticket",
+            })
+            .unwrap();
+
+        let ticket = create_share_ticket(&self.endpoint, &bundle_hash, &bundle_format);
+
+        channel
+            .send(DownloadEvent::Completed {
+                detail: "Share ticket created successfully",
+            })
+            .unwrap();
+
+        ticket
     }
 
     /// Downloads files from a ticket and returns metadata and download location.

@@ -1,7 +1,9 @@
 //! Utility functions for file operations and validation
 
+use crate::commands::DownloadEvent;
 use anyhow::Result;
 use std::path::{Path, PathBuf};
+use tauri::ipc::Channel;
 
 /// Validate and canonicalize a list of file paths
 ///
@@ -11,6 +13,7 @@ use std::path::{Path, PathBuf};
 /// 3. Resolving any symbolic links
 ///
 /// # Arguments
+/// * `channel` - Channel to send download events
 /// * `paths` - Vector of path strings to validate
 ///
 /// # Returns
@@ -19,7 +22,16 @@ use std::path::{Path, PathBuf};
 /// # Errors
 /// Returns an error if any path is invalid, doesn't exist, or cannot be canonicalized
 ///
-pub fn validate_and_canonicalize_paths(paths: Vec<String>) -> Result<Vec<PathBuf>, String> {
+pub fn validate_and_canonicalize_paths(
+    channel: &Channel<DownloadEvent<'_>>,
+    paths: Vec<String>,
+) -> Result<Vec<PathBuf>, String> {
+    channel
+        .send(DownloadEvent::Progress {
+            detail: "Validating file paths",
+        })
+        .unwrap();
+
     paths
         .iter()
         .map(|path| {
@@ -151,7 +163,8 @@ mod tests {
         File::create(&file_path).unwrap();
 
         let paths = vec![file_path.to_string_lossy().to_string()];
-        let result = validate_and_canonicalize_paths(paths);
+        let dummy_channel = Channel::new(|_| Ok(()));
+        let result = validate_and_canonicalize_paths(&dummy_channel, paths);
 
         assert!(result.is_ok());
         let canonical_paths = result.unwrap();
@@ -162,7 +175,8 @@ mod tests {
     #[test]
     fn test_validate_nonexistent_file() {
         let paths = vec!["/this/path/does/not/exist.txt".to_string()];
-        let result = validate_and_canonicalize_paths(paths);
+        let dummy_channel = Channel::new(|_| Ok(()));
+        let result = validate_and_canonicalize_paths(&dummy_channel, paths);
 
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Invalid file path"));
@@ -171,7 +185,8 @@ mod tests {
     #[test]
     fn test_validate_empty_paths() {
         let paths = vec![];
-        let result = validate_and_canonicalize_paths(paths);
+        let dummy_channel = Channel::new(|_| Ok(()));
+        let result = validate_and_canonicalize_paths(&dummy_channel, paths);
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap().len(), 0);

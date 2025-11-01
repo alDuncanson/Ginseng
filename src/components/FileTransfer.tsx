@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Copy, Download, File, Files, Folder, Send, X } from "lucide-react";
 import { useState } from "react";
@@ -25,6 +25,10 @@ interface ShareMetadata {
 interface DownloadResult {
 	metadata: ShareMetadata;
 	download_path: string;
+}
+
+interface DownloadEvent {
+	detail: string;
 }
 
 export function FileTransfer() {
@@ -81,10 +85,17 @@ export function FileTransfer() {
 			return;
 		}
 
+		const onEvent = new Channel<DownloadEvent>();
+
+		onEvent.onmessage = (message: DownloadEvent) => {
+			console.log(message);
+		};
+
 		setSendLoading(true);
 		try {
 			const generatedTicket = await invoke<string>("share_files", {
 				paths: selectedPaths,
+				onEvent,
 			});
 			setTicket(generatedTicket);
 			toast.success("Share ticket generated!");
