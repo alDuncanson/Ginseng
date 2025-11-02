@@ -3,12 +3,14 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { Copy, Download, File, Files, Folder, Send, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { ParallelProgress } from "@/components/ParallelProgress";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { ProgressEvent, TransferProgress } from "@/types/progress";
 
 interface FileInfo {
 	name: string;
@@ -27,10 +29,6 @@ interface DownloadResult {
 	download_path: string;
 }
 
-interface DownloadEvent {
-	detail: string;
-}
-
 export function FileTransfer() {
 	const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
 	const [ticket, setTicket] = useState<string>("");
@@ -39,6 +37,10 @@ export function FileTransfer() {
 	const [receiveTicket, setReceiveTicket] = useState<string>("");
 	const [receiveLoading, setReceiveLoading] = useState(false);
 	const [lastDownload, setLastDownload] = useState<DownloadResult | null>(null);
+
+	// Parallel progress tracking
+	const [uploadProgress, setUploadProgress] = useState<TransferProgress | null>(null);
+	const [downloadProgress, setDownloadProgress] = useState<TransferProgress | null>(null);
 
 	const selectFiles = async () => {
 		try {
@@ -85,22 +87,41 @@ export function FileTransfer() {
 			return;
 		}
 
-		const onEvent = new Channel<DownloadEvent>();
+		const channel = new Channel<ProgressEvent>();
+		let generatedTicket = "";
 
-		onEvent.onmessage = (message: DownloadEvent) => {
-			console.log(message);
+		channel.onmessage = (event: ProgressEvent) => {
+			switch (event.event) {
+				case "transferStarted":
+				case "transferProgress":
+					setUploadProgress(event.data.transfer);
+					break;
+				case "transferCompleted":
+					setUploadProgress(event.data.transfer);
+					if (generatedTicket) {
+						setTicket(generatedTicket);
+						toast.success("Share ticket generated!");
+					}
+					break;
+				case "transferFailed":
+					setUploadProgress(event.data.transfer);
+					toast.error(`Failed: ${event.data.error}`);
+					break;
+			}
 		};
 
 		setSendLoading(true);
+		setUploadProgress(null);
+
 		try {
-			const generatedTicket = await invoke<string>("share_files", {
+			generatedTicket = await invoke<string>("share_files_parallel", {
+				channel,
 				paths: selectedPaths,
-				onEvent,
 			});
 			setTicket(generatedTicket);
-			toast.success("Share ticket generated!");
 		} catch (error) {
 			toast.error(`Failed to share files: ${error}`);
+			setUploadProgress(null);
 		} finally {
 			setSendLoading(false);
 		}
@@ -121,16 +142,38 @@ export function FileTransfer() {
 			return;
 		}
 
+		const channel = new Channel<ProgressEvent>();
+
+		channel.onmessage = (event: ProgressEvent) => {
+			switch (event.event) {
+				case "transferStarted":
+				case "transferProgress":
+					setDownloadProgress(event.data.transfer);
+					break;
+				case "transferCompleted":
+					setDownloadProgress(event.data.transfer);
+					toast.success("Files downloaded successfully!");
+					break;
+				case "transferFailed":
+					setDownloadProgress(event.data.transfer);
+					toast.error(`Failed: ${event.data.error}`);
+					break;
+			}
+		};
+
 		setReceiveLoading(true);
+		setDownloadProgress(null);
+
 		try {
-			const result = await invoke<DownloadResult>("download_files", {
+			const result = await invoke<DownloadResult>("download_files_parallel", {
+				channel,
 				ticket: receiveTicket,
 			});
 			setLastDownload(result);
-			toast.success("Files downloaded successfully!");
 			setReceiveTicket("");
 		} catch (error) {
 			toast.error(`Failed to download files: ${error}`);
+			setDownloadProgress(null);
 		} finally {
 			setReceiveLoading(false);
 		}
@@ -237,6 +280,8 @@ export function FileTransfer() {
 								{sendLoading ? "Generating..." : "Generate Share Ticket"}
 							</Button>
 
+							{uploadProgress && <ParallelProgress transfer={uploadProgress} compact={false} />}
+
 							{ticket && (
 								<div className="space-y-2">
 									<Label>Share Ticket</Label>
@@ -284,6 +329,8 @@ export function FileTransfer() {
 							>
 								{receiveLoading ? "Downloading..." : "Download Files"}
 							</Button>
+
+							{downloadProgress && <ParallelProgress transfer={downloadProgress} compact={false} />}
 
 							{lastDownload && (
 								<div className="space-y-3 p-4 border rounded bg-muted/50">

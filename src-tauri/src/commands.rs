@@ -1,3 +1,4 @@
+use crate::progress::ProgressEvent;
 use crate::state::{AppState, DownloadResult};
 use crate::utils::validate_and_canonicalize_paths;
 use serde::Serialize;
@@ -136,4 +137,39 @@ pub async fn download_file(
 ) -> Result<(), String> {
     let _result = download_files(state, ticket).await?;
     Ok(())
+}
+
+/// Share files with parallel progress tracking
+#[tauri::command]
+pub async fn share_files_parallel(
+    channel: Channel<ProgressEvent>,
+    state: tauri::State<'_, AppState>,
+    paths: Vec<String>,
+) -> Result<String, String> {
+    let core = state.get_core()?;
+    let validated_paths = validate_and_canonicalize_paths(&channel, paths)?;
+
+    core.share_files_parallel(channel, validated_paths)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+/// Download files with parallel progress tracking
+#[tauri::command]
+pub async fn download_files_parallel(
+    channel: Channel<ProgressEvent>,
+    state: tauri::State<'_, AppState>,
+    ticket: String,
+) -> Result<DownloadResult, String> {
+    let core = state.get_core()?;
+
+    let (metadata, target_dir) = core
+        .download_files_parallel(channel, ticket)
+        .await
+        .map_err(|error| error.to_string())?;
+
+    Ok(DownloadResult {
+        metadata,
+        download_path: target_dir.to_string_lossy().to_string(),
+    })
 }

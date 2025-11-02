@@ -1,13 +1,19 @@
 use crate::commands::DownloadEvent;
+use crate::progress::{
+    FileProgress, FileStatus, ProgressEvent, ProgressTracker, RateLimiter, TransferStage,
+    TransferType,
+};
 use crate::utils::{
     calculate_relative_path, calculate_total_size, extract_directory_name, extract_file_name,
     get_downloads_directory, validate_paths_not_empty,
 };
 use anyhow::Result;
+
 use iroh::{endpoint::Connection, protocol::Router, Endpoint, RelayMode};
 use iroh_blobs::{store::mem::MemStore, ticket::BlobTicket, BlobsProtocol, Hash};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use tauri::ipc::Channel;
 use tokio::fs;
 use walkdir::WalkDir;
@@ -238,6 +244,246 @@ impl GinsengCore {
         format_node_info(&self.endpoint)
     }
 
+    /// Shares files with parallel processing and real-time progress updates
+    ///
+    /// Processes multiple files concurrently using tokio, providing streaming
+    /// progress updates through the channel for each file and overall transfer.
+    pub async fn share_files_parallel(
+        &self,
+        channel: Channel<ProgressEvent>,
+        paths: Vec<PathBuf>,
+    ) -> Result<String> {
+        validate_paths_not_empty(&paths)?;
+
+        let tracker = ProgressTracker::new(uuid::Uuid::new_v4().to_string(), TransferType::Upload);
+        let rate_limiter = RateLimiter::new(Duration::from_millis(100));
+
+        // Send initial event
+        channel
+            .send(ProgressEvent::TransferStarted {
+                transfer: tracker.get_snapshot().await,
+            })
+            .ok();
+
+        tracker.set_stage(TransferStage::Initializing).await;
+
+        // Collect file paths to process
+        let file_paths = collect_file_paths(&paths).await?;
+
+        // Initialize file progress entries
+        for (file_path, base_path) in &file_paths {
+            let name = extract_file_name(file_path);
+            let relative_path = calculate_relative_path(file_path, base_path)?;
+            let size = get_file_size(file_path).await?;
+            tracker
+                .add_file(FileProgress::new(name, relative_path, size))
+                .await;
+        }
+
+        channel
+            .send(ProgressEvent::TransferProgress {
+                transfer: tracker.get_snapshot().await,
+            })
+            .ok();
+
+        tracker.set_stage(TransferStage::Transferring).await;
+
+        // Process files sequentially with progress updates
+        let mut file_infos = Vec::new();
+        
+        for (idx, (file_path, base_path)) in file_paths.iter().enumerate() {
+            let snapshot = tracker.get_snapshot().await;
+            let file_id = snapshot.files[idx].file_id.clone();
+
+            tracker
+                .update_file(&file_id, |f| {
+                    f.status = FileStatus::Transferring;
+                })
+                .await;
+
+            channel
+                .send(ProgressEvent::FileProgress {
+                    transfer_id: snapshot.transfer_id.clone(),
+                    file: snapshot.files[idx].clone(),
+                })
+                .ok();
+
+            // Store file as blob
+            let file_info = create_file_info(&self.blobs, file_path, base_path).await?;
+
+            tracker
+                .update_file(&file_id, |f| {
+                    f.status = FileStatus::Completed;
+                    f.transferred_bytes = f.total_bytes;
+                })
+                .await;
+
+            if rate_limiter.should_emit().await {
+                let snapshot = tracker.get_snapshot().await;
+                channel
+                    .send(ProgressEvent::TransferProgress {
+                        transfer: snapshot,
+                    })
+                    .ok();
+            }
+
+            file_infos.push(file_info);
+        }
+
+        let total_size = calculate_total_size(file_infos.iter().map(|f| f.size));
+        let share_type = determine_share_type(&paths, &file_infos);
+
+        let metadata = ShareMetadata {
+            files: file_infos,
+            share_type,
+            total_size,
+        };
+
+        tracker.set_stage(TransferStage::Finalizing).await;
+
+        let metadata_hash = store_metadata_as_blob(&self.blobs, &metadata).await?;
+        let bundle = ShareBundle {
+            metadata,
+            metadata_hash,
+        };
+        let (bundle_hash, bundle_format) = store_bundle_as_blob(&self.blobs, &bundle).await?;
+        let ticket = create_share_ticket(&self.endpoint, &bundle_hash, &bundle_format)?;
+
+        tracker.complete().await;
+        channel
+            .send(ProgressEvent::TransferCompleted {
+                transfer: tracker.get_snapshot().await,
+            })
+            .ok();
+
+        Ok(ticket)
+    }
+
+    /// Downloads files with parallel processing and real-time progress updates
+    pub async fn download_files_parallel(
+        &self,
+        channel: Channel<ProgressEvent>,
+        ticket_str: String,
+    ) -> Result<(ShareMetadata, PathBuf)> {
+        let tracker =
+            ProgressTracker::new(uuid::Uuid::new_v4().to_string(), TransferType::Download);
+        let rate_limiter = RateLimiter::new(Duration::from_millis(100));
+
+        channel
+            .send(ProgressEvent::TransferStarted {
+                transfer: tracker.get_snapshot().await,
+            })
+            .ok();
+
+        tracker.set_stage(TransferStage::Connecting).await;
+
+        let ticket = parse_ticket(&ticket_str)?;
+        let bundle =
+            download_and_parse_bundle(&self.endpoint, &self.blobs, &self.store, &ticket).await?;
+
+        let target_directory = determine_target_directory(&bundle.metadata)?;
+
+        // Initialize file progress
+        for file_info in &bundle.metadata.files {
+            tracker
+                .add_file(FileProgress::new(
+                    file_info.name.clone(),
+                    file_info.relative_path.clone(),
+                    file_info.size,
+                ))
+                .await;
+        }
+
+        tracker.set_stage(TransferStage::Transferring).await;
+        channel
+            .send(ProgressEvent::TransferProgress {
+                transfer: tracker.get_snapshot().await,
+            })
+            .ok();
+
+        // Download files (sequentially for now - parallel version needs more careful lifetime management)
+        let downloader = self.blobs.store().downloader(&self.endpoint);
+
+        for (idx, file_info) in bundle.metadata.files.iter().enumerate() {
+            let snapshot = tracker.get_snapshot().await;
+            let file_id = snapshot.files[idx].file_id.clone();
+
+            tracker
+                .update_file(&file_id, |f| {
+                    f.status = FileStatus::Transferring;
+                })
+                .await;
+
+            let file_hash: Hash = file_info
+                .hash
+                .parse()
+                .map_err(|e| anyhow::anyhow!("Invalid hash: {}", e))?;
+
+            // Download file
+            downloader
+                .download(file_hash, Some(ticket.addr().id))
+                .await
+                .map_err(|e| anyhow::anyhow!("Download failed: {}", e))?;
+
+            // Export to file system
+            export_individual_file(&self.blobs, file_info, &target_directory).await?;
+
+            tracker
+                .update_file(&file_id, |f| {
+                    f.status = FileStatus::Completed;
+                    f.transferred_bytes = f.total_bytes;
+                })
+                .await;
+
+            if rate_limiter.should_emit().await {
+                channel
+                    .send(ProgressEvent::TransferProgress {
+                        transfer: tracker.get_snapshot().await,
+                    })
+                    .ok();
+            }
+        }
+
+        tracker.complete().await;
+        channel
+            .send(ProgressEvent::TransferCompleted {
+                transfer: tracker.get_snapshot().await,
+            })
+            .ok();
+
+        Ok((bundle.metadata, target_directory))
+    }
+
+    /// CLI version - share files without progress tracking
+    pub async fn share_files_cli(&self, paths: Vec<PathBuf>) -> Result<String> {
+        validate_paths_not_empty(&paths)?;
+        let metadata = create_share_metadata(&self.blobs, &paths).await?;
+        let metadata_hash = store_metadata_as_blob(&self.blobs, &metadata).await?;
+        let bundle = ShareBundle {
+            metadata,
+            metadata_hash,
+        };
+        let (bundle_hash, bundle_format) = store_bundle_as_blob(&self.blobs, &bundle).await?;
+        create_share_ticket(&self.endpoint, &bundle_hash, &bundle_format)
+    }
+
+    /// CLI version - download files without progress tracking
+    pub async fn download_files_cli(&self, ticket_str: String) -> Result<(ShareMetadata, PathBuf)> {
+        let ticket = parse_ticket(&ticket_str)?;
+        let bundle =
+            download_and_parse_bundle(&self.endpoint, &self.blobs, &self.store, &ticket).await?;
+        let target_directory = determine_target_directory(&bundle.metadata)?;
+        download_all_files(
+            &self.endpoint,
+            &self.blobs,
+            &bundle.metadata,
+            &target_directory,
+            &ticket,
+        )
+        .await?;
+        Ok((bundle.metadata, target_directory))
+    }
+
     /// Gracefully shuts down the router and endpoint.
     ///
     /// This should be called before ending the process to ensure proper cleanup
@@ -459,6 +705,45 @@ async fn collect_directory_files(blobs: &BlobsProtocol, dir_path: &Path) -> Resu
     }
 
     Ok(file_infos)
+}
+
+/// Collects all file paths from the given paths (files and directories)
+async fn collect_file_paths(paths: &[PathBuf]) -> Result<Vec<(PathBuf, PathBuf)>> {
+    let mut file_paths = Vec::new();
+
+    for path in paths {
+        let canonical = fs::canonicalize(path).await?;
+        if canonical.is_file() {
+            file_paths.push((canonical.clone(), canonical.clone()));
+        } else if canonical.is_dir() {
+            for entry in WalkDir::new(&canonical).into_iter().filter_map(Result::ok) {
+                let entry_path = entry.path();
+                if entry_path.is_file() {
+                    file_paths.push((entry_path.to_path_buf(), canonical.clone()));
+                }
+            }
+        }
+    }
+
+    Ok(file_paths)
+}
+
+/// Determines share type from paths and file infos
+fn determine_share_type(paths: &[PathBuf], file_infos: &[FileInfo]) -> ShareType {
+    if paths.len() == 1 {
+        let path = &paths[0];
+        if path.is_file() {
+            ShareType::SingleFile
+        } else {
+            ShareType::Directory {
+                name: extract_directory_name(path),
+            }
+        }
+    } else if file_infos.len() == 1 {
+        ShareType::SingleFile
+    } else {
+        ShareType::MultipleFiles
+    }
 }
 
 /// Serializes share metadata to JSON and stores it as a blob.

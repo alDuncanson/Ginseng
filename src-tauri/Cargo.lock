@@ -1966,6 +1966,7 @@ dependencies = [
  "chrono",
  "clap",
  "dirs 5.0.1",
+ "futures",
  "iroh",
  "iroh-blobs",
  "serde",
@@ -1976,6 +1977,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tempfile",
  "tokio",
+ "uuid",
  "walkdir",
 ]
 

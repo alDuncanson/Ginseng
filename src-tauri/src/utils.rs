@@ -1,36 +1,14 @@
 //! Utility functions for file operations and validation
 
-use crate::commands::DownloadEvent;
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 use tauri::ipc::Channel;
 
-/// Validate and canonicalize a list of file paths
-///
-/// This function takes a vector of path strings and validates each one by:
-/// 1. Checking that the path exists
-/// 2. Converting it to a canonical (absolute) path
-/// 3. Resolving any symbolic links
-///
-/// # Arguments
-/// * `channel` - Channel to send download events
-/// * `paths` - Vector of path strings to validate
-///
-/// # Returns
-/// A vector of canonicalized PathBuf instances
-///
-/// # Errors
-/// Returns an error if any path is invalid, doesn't exist, or cannot be canonicalized
-///
-pub fn validate_and_canonicalize_paths(
-    channel: &Channel<DownloadEvent<'_>>,
+/// Validate and canonicalize paths for ProgressEvent channel
+pub fn validate_and_canonicalize_paths<T>(
+    _channel: &Channel<T>,
     paths: Vec<String>,
 ) -> Result<Vec<PathBuf>, String> {
-    channel
-        .send(DownloadEvent::Progress {
-            detail: "Validating file paths",
-        })
-        .unwrap();
 
     paths
         .iter()

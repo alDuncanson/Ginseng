@@ -64,7 +64,7 @@ async fn handle_send(ginseng: GinsengCore, paths: Vec<PathBuf>, files_only: bool
     display_sharing_summary(&paths);
 
     println!("\nGenerating share ticket...");
-    let ticket = ginseng.share_files(paths).await?;
+    let ticket = ginseng.share_files_cli(paths).await?;
 
     display_share_ticket(&ticket);
 
@@ -77,7 +77,7 @@ async fn handle_send(ginseng: GinsengCore, paths: Vec<PathBuf>, files_only: bool
 async fn handle_receive(ginseng: GinsengCore, ticket: String) -> Result<()> {
     println!("🔄 Downloading files from ticket...");
 
-    let (metadata, download_path) = ginseng.download_files(ticket).await?;
+    let (metadata, download_path) = ginseng.download_files_cli(ticket).await?;
 
     display_download_summary(&metadata, &download_path);
 
