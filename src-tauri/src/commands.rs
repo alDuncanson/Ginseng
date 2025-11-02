@@ -44,7 +44,7 @@ pub async fn share_files(
 
     let core = state.get_core()?;
 
-    let validated_paths = validate_and_canonicalize_paths(&channel, paths)?;
+    let validated_paths = validate_and_canonicalize_paths(paths)?;
 
     core.share_files(&channel, validated_paths)
         .await
@@ -147,7 +147,7 @@ pub async fn share_files_parallel(
     paths: Vec<String>,
 ) -> Result<String, String> {
     let core = state.get_core()?;
-    let validated_paths = validate_and_canonicalize_paths(&channel, paths)?;
+    let validated_paths = validate_and_canonicalize_paths(paths)?;
 
     core.share_files_parallel(channel, validated_paths)
         .await

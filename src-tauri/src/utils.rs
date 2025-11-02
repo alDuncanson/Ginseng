@@ -2,11 +2,9 @@
 
 use anyhow::Result;
 use std::path::{Path, PathBuf};
-use tauri::ipc::Channel;
 
 /// Validate and canonicalize paths for ProgressEvent channel
-pub fn validate_and_canonicalize_paths<T>(
-    _channel: &Channel<T>,
+pub fn validate_and_canonicalize_paths(
     paths: Vec<String>,
 ) -> Result<Vec<PathBuf>, String> {
     paths
@@ -140,8 +138,7 @@ mod tests {
         File::create(&file_path).unwrap();
 
         let paths = vec![file_path.to_string_lossy().to_string()];
-        let dummy_channel: Channel<()> = Channel::new(|_| Ok(()));
-        let result = validate_and_canonicalize_paths(&dummy_channel, paths);
+        let result = validate_and_canonicalize_paths(paths);
 
         assert!(result.is_ok());
         let canonical_paths = result.unwrap();
@@ -152,8 +149,7 @@ mod tests {
     #[test]
     fn test_validate_nonexistent_file() {
         let paths = vec!["/this/path/does/not/exist.txt".to_string()];
-        let dummy_channel: Channel<()> = Channel::new(|_| Ok(()));
-        let result = validate_and_canonicalize_paths(&dummy_channel, paths);
+        let result = validate_and_canonicalize_paths(paths);
 
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Invalid file path"));
@@ -162,8 +158,7 @@ mod tests {
     #[test]
     fn test_validate_empty_paths() {
         let paths = vec![];
-        let dummy_channel: Channel<()> = Channel::new(|_| Ok(()));
-        let result = validate_and_canonicalize_paths(&dummy_channel, paths);
+        let result = validate_and_canonicalize_paths(paths);
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap().len(), 0);
