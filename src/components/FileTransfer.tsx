@@ -5,7 +5,6 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { ParallelProgress } from "@/components/ParallelProgress";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -200,50 +199,50 @@ export function FileTransfer() {
 	};
 
 	return (
-		<div className="min-h-screen p-8">
-			<div className="max-w-6xl mx-auto">
-				<div className="flex items-baseline justify-between mb-12">
-					<h1 className="text-4xl font-bold tracking-tight">GINSENG</h1>
-					<div className="text-sm text-muted-foreground">
+		<div className="min-h-screen p-12">
+			<div className="max-w-3xl mx-auto">
+				<div className="flex items-baseline justify-between mb-16 pb-4 border-b border-foreground/20">
+					<h1 className="text-5xl font-light tracking-wide">GINSENG</h1>
+					<div className="text-xs tracking-wider uppercase text-muted-foreground">
 						{new Date().toLocaleTimeString("en-US", { hour12: false })} UTC
 					</div>
 				</div>
 
 				<Tabs defaultValue="send" className="w-full">
-					<TabsList className="mb-8">
+					<TabsList className="mb-12">
 						<TabsTrigger value="send">send</TabsTrigger>
 						<TabsTrigger value="receive">receive</TabsTrigger>
 					</TabsList>
 
-					<TabsContent value="send" className="space-y-6">
-						<div className="grid grid-cols-2 gap-4">
-							<Button variant="outline" onClick={selectFiles} className="justify-start h-auto py-4">
-								<Files className="h-4 w-4 mr-2" />
-								select files
+					<TabsContent value="send" className="space-y-8">
+						<div className="grid grid-cols-2 gap-3">
+							<Button variant="outline" onClick={selectFiles} className="justify-start h-auto py-3 border">
+								<Files className="h-3.5 w-3.5 mr-2" />
+								<span className="font-normal">select files</span>
 							</Button>
 							<Button
 								variant="outline"
 								onClick={selectFolder}
-								className="justify-start h-auto py-4"
+								className="justify-start h-auto py-3 border"
 							>
-								<Folder className="h-4 w-4 mr-2" />
-								select folder
+								<Folder className="h-3.5 w-3.5 mr-2" />
+								<span className="font-normal">select folder</span>
 							</Button>
 						</div>
 
 						{selectedPaths.length > 0 && (
-							<div className="space-y-3">
-								<div className="text-sm text-muted-foreground">
-									selected · {selectedPaths.length} {selectedPaths.length === 1 ? "item" : "items"}
+							<div className="space-y-4 pt-2">
+								<div className="text-xs uppercase tracking-wider text-muted-foreground">
+									Selected · {selectedPaths.length} {selectedPaths.length === 1 ? "item" : "items"}
 								</div>
-								<div className="space-y-2">
+								<div className="space-y-0 border-t border-foreground/10">
 									{selectedPaths.map((path) => (
 										<div
 											key={path}
-											className="flex items-center justify-between bg-muted/30 px-3 py-2"
+											className="flex items-center justify-between py-2.5 border-b border-foreground/10 last:border-0"
 										>
-											<div className="flex items-center gap-2 flex-1 min-w-0">
-												<File className="h-3 w-3 flex-shrink-0" />
+											<div className="flex items-center gap-3 flex-1 min-w-0">
+												<File className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
 												<span className="text-sm truncate" title={path}>
 													{getFileName(path)}
 												</span>
@@ -252,9 +251,9 @@ export function FileTransfer() {
 												variant="ghost"
 												size="sm"
 												onClick={() => removeFile(path)}
-												className="h-6 w-6 p-0 flex-shrink-0"
+												className="h-7 w-7 p-0 flex-shrink-0 hover:bg-transparent"
 											>
-												<X className="h-3 w-3" />
+												<X className="h-3.5 w-3.5" />
 											</Button>
 										</div>
 									))}
@@ -265,7 +264,7 @@ export function FileTransfer() {
 						<Button
 							onClick={sendFiles}
 							disabled={selectedPaths.length === 0 || sendLoading}
-							className="w-full h-12"
+							className="w-full h-11 font-normal"
 						>
 							{sendLoading ? "generating ticket..." : "generate share ticket"}
 						</Button>
@@ -273,35 +272,35 @@ export function FileTransfer() {
 						{uploadProgress && <ParallelProgress transfer={uploadProgress} compact={false} />}
 
 						{ticket && (
-							<Card className="p-6">
+							<div className="border border-foreground/20 p-6">
 								<div className="space-y-4">
-									<div className="text-sm text-muted-foreground">share ticket</div>
+									<div className="text-xs uppercase tracking-wider text-muted-foreground">Share Ticket</div>
 									<div className="flex gap-2">
-										<Input value={ticket} readOnly className="text-xs" />
-										<Button variant="outline" size="icon" onClick={copyTicket}>
+										<Input value={ticket} readOnly className="text-xs border" />
+										<Button variant="outline" size="icon" onClick={copyTicket} className="border">
 											<Copy className="h-4 w-4" />
 										</Button>
 									</div>
 								</div>
-							</Card>
+							</div>
 						)}
 					</TabsContent>
 
-					<TabsContent value="receive" className="space-y-6">
+					<TabsContent value="receive" className="space-y-8">
 						<div className="space-y-3">
-							<Label className="text-sm text-muted-foreground">ticket</Label>
+							<Label className="text-xs uppercase tracking-wider text-muted-foreground">Ticket</Label>
 							<Input
 								placeholder="paste share ticket here..."
 								value={receiveTicket}
 								onChange={(e) => setReceiveTicket(e.target.value)}
-								className="text-xs"
+								className="text-xs border"
 							/>
 						</div>
 
 						<Button
 							onClick={receiveFiles}
 							disabled={!receiveTicket || receiveLoading}
-							className="w-full h-12"
+							className="w-full h-11 font-normal"
 						>
 							{receiveLoading ? "downloading..." : "download files"}
 						</Button>
@@ -309,42 +308,46 @@ export function FileTransfer() {
 						{downloadProgress && <ParallelProgress transfer={downloadProgress} compact={false} />}
 
 						{lastDownload && (
-							<Card className="p-6">
-								<div className="space-y-4">
-									<div className="text-sm text-muted-foreground mb-4">last download</div>
-									<div className="grid grid-cols-2 gap-y-3 text-sm">
-										<div className="text-muted-foreground">type</div>
-										<div className="text-right">
-											{getShareTypeDisplay(lastDownload.metadata.share_type)}
+							<div className="border border-foreground/20 p-6">
+								<div className="space-y-6">
+									<div className="text-xs uppercase tracking-wider text-muted-foreground">Last Download</div>
+									<div className="space-y-3">
+										<div className="flex justify-between text-sm py-1.5 border-b border-foreground/10">
+											<span className="text-muted-foreground">Type</span>
+											<span>{getShareTypeDisplay(lastDownload.metadata.share_type)}</span>
 										</div>
 
-										<div className="text-muted-foreground">files</div>
-										<div className="text-right">{lastDownload.metadata.files.length}</div>
-
-										<div className="text-muted-foreground">size</div>
-										<div className="text-right">
-											{formatFileSize(lastDownload.metadata.total_size)}
+										<div className="flex justify-between text-sm py-1.5 border-b border-foreground/10">
+											<span className="text-muted-foreground">Files</span>
+											<span>{lastDownload.metadata.files.length}</span>
 										</div>
 
-										<div className="text-muted-foreground">location</div>
-										<div className="text-right truncate" title={lastDownload.download_path}>
-											{lastDownload.download_path}
+										<div className="flex justify-between text-sm py-1.5 border-b border-foreground/10">
+											<span className="text-muted-foreground">Size</span>
+											<span>{formatFileSize(lastDownload.metadata.total_size)}</span>
+										</div>
+
+										<div className="flex justify-between text-sm py-1.5">
+											<span className="text-muted-foreground">Location</span>
+											<span className="truncate ml-4 text-right" title={lastDownload.download_path}>
+												{lastDownload.download_path}
+											</span>
 										</div>
 									</div>
 
 									{lastDownload.metadata.files.length > 0 && (
-										<div className="mt-6 space-y-2">
-											<div className="text-sm text-muted-foreground mb-3">files</div>
-											<div className="max-h-40 overflow-y-auto space-y-1">
+										<div className="pt-2 space-y-3">
+											<div className="text-xs uppercase tracking-wider text-muted-foreground">Files</div>
+											<div className="max-h-40 overflow-y-auto space-y-0 border-t border-foreground/10">
 												{lastDownload.metadata.files.map((file) => (
 													<div
 														key={file.relative_path}
-														className="flex items-center justify-between text-xs bg-background/50 px-2 py-1"
+														className="flex items-center justify-between text-xs py-2 border-b border-foreground/10 last:border-0"
 													>
 														<span className="truncate" title={file.relative_path}>
 															{file.relative_path}
 														</span>
-														<span className="text-muted-foreground ml-2">
+														<span className="text-muted-foreground ml-4">
 															{formatFileSize(file.size)}
 														</span>
 													</div>
@@ -353,7 +356,7 @@ export function FileTransfer() {
 										</div>
 									)}
 								</div>
-							</Card>
+							</div>
 						)}
 					</TabsContent>
 				</Tabs>

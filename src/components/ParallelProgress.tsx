@@ -1,6 +1,4 @@
 import { AlertCircle, Check, Clock, Download, Upload } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import type { FileProgress, TransferProgress } from "@/types/progress";
 import { calculateProgress, formatBytes, formatDuration } from "@/types/progress";
@@ -28,20 +26,20 @@ export function ParallelProgress({ transfer, compact = false }: ParallelProgress
 
 	if (compact) {
 		return (
-			<Card className="p-4">
+			<div className="border border-foreground/20 p-4">
 				<div className="flex items-center gap-3">
 					{transfer.transferType === "upload" ? (
-						<Upload className="h-4 w-4" />
+						<Upload className="h-4 w-4 text-muted-foreground" />
 					) : (
-						<Download className="h-4 w-4" />
+						<Download className="h-4 w-4 text-muted-foreground" />
 					)}
 					<div className="flex-1 space-y-2">
 						<div className="flex items-center justify-between text-sm">
-							<span>
+							<span className="font-normal">
 								{transfer.transferType === "upload" ? "uploading" : "downloading"}{" "}
 								{transfer.totalFiles} file(s)
 							</span>
-							<Badge variant="outline">{getStageDisplay()}</Badge>
+							<span className="text-xs uppercase tracking-wider">{getStageDisplay()}</span>
 						</div>
 						{transfer.stage === "transferring" && (
 							<>
@@ -56,27 +54,27 @@ export function ParallelProgress({ transfer, compact = false }: ParallelProgress
 						)}
 					</div>
 				</div>
-			</Card>
+			</div>
 		);
 	}
 
 	return (
-		<Card className="p-6">
+		<div className="border border-foreground/20 p-6">
 			<div className="space-y-6">
-				<div className="flex items-center justify-between">
-					<div className="text-sm text-muted-foreground">
-						{transfer.transferType === "upload" ? "upload" : "download"} progress
+				<div className="flex items-center justify-between pb-3 border-b border-foreground/10">
+					<div className="text-xs uppercase tracking-wider text-muted-foreground">
+						{transfer.transferType === "upload" ? "Upload" : "Download"} Progress
 					</div>
-					<div className="text-sm">{getStageDisplay()}</div>
+					<div className="text-xs uppercase tracking-wider">{getStageDisplay()}</div>
 				</div>
 
 				<div className="space-y-3">
-					<div className="flex justify-between text-sm">
-						<span className="text-muted-foreground">overall</span>
+					<div className="flex justify-between text-sm py-1">
+						<span className="text-muted-foreground">Overall</span>
 						<span>{overallProgress}%</span>
 					</div>
-					<Progress value={overallProgress} className="h-1" />
-					<div className="flex justify-between text-xs text-muted-foreground">
+					<Progress value={overallProgress} className="h-0.5" />
+					<div className="flex justify-between text-xs text-muted-foreground pt-1">
 						<span>
 							{formatBytes(transfer.transferredBytes)} / {formatBytes(transfer.totalBytes)}
 						</span>
@@ -87,16 +85,16 @@ export function ParallelProgress({ transfer, compact = false }: ParallelProgress
 				</div>
 
 				{(transfer.transferRate || transfer.etaSeconds) && (
-					<div className="grid grid-cols-2 gap-4 text-sm">
+					<div className="flex gap-8 text-sm pt-2">
 						{transfer.transferRate && (
-							<div>
-								<span className="text-muted-foreground">speed </span>
+							<div className="flex gap-2">
+								<span className="text-muted-foreground">Speed</span>
 								<span>{formatBytes(transfer.transferRate)}/s</span>
 							</div>
 						)}
 						{transfer.etaSeconds && (
-							<div>
-								<span className="text-muted-foreground">eta </span>
+							<div className="flex gap-2">
+								<span className="text-muted-foreground">ETA</span>
 								<span>{formatDuration(transfer.etaSeconds)}</span>
 							</div>
 						)}
@@ -104,11 +102,11 @@ export function ParallelProgress({ transfer, compact = false }: ParallelProgress
 				)}
 
 				{transfer.files.length > 0 && (
-					<div className="space-y-3">
-						<div className="text-sm text-muted-foreground">
-							active files · {transfer.completedFiles}/{transfer.totalFiles}
+					<div className="space-y-3 pt-2">
+						<div className="text-xs uppercase tracking-wider text-muted-foreground">
+							Active Files · {transfer.completedFiles}/{transfer.totalFiles}
 						</div>
-						<div className="max-h-64 space-y-3 overflow-y-auto">
+						<div className="max-h-64 space-y-4 overflow-y-auto">
 							{transfer.files.map((file) => (
 								<FileProgressItem key={file.fileId} file={file} />
 							))}
@@ -117,18 +115,18 @@ export function ParallelProgress({ transfer, compact = false }: ParallelProgress
 				)}
 
 				{transfer.error && (
-					<div className="bg-destructive/10 p-4 text-sm">
+					<div className="border border-destructive p-4 text-sm">
 						<div className="flex items-start gap-2">
-							<AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+							<AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
 							<div>
-								<div className="font-medium">Transfer Failed</div>
-								<div className="text-muted-foreground">{transfer.error}</div>
+								<div className="font-normal">Transfer Failed</div>
+								<div className="text-muted-foreground text-xs mt-1">{transfer.error}</div>
 							</div>
 						</div>
 					</div>
 				)}
 			</div>
-		</Card>
+		</div>
 	);
 }
 
@@ -138,13 +136,13 @@ function FileProgressItem({ file }: { file: FileProgress }) {
 	const getIcon = () => {
 		switch (file.status) {
 			case "completed":
-				return <Check className="h-3 w-3" />;
+				return <Check className="h-3 w-3 text-muted-foreground" />;
 			case "failed":
 				return <AlertCircle className="h-3 w-3 text-destructive" />;
 			case "transferring":
-				return <Clock className="h-3 w-3 animate-pulse" />;
+				return <Clock className="h-3 w-3 animate-pulse text-muted-foreground" />;
 			default:
-				return <Clock className="h-3 w-3 opacity-50" />;
+				return <Clock className="h-3 w-3 text-muted-foreground/50" />;
 		}
 	};
 
@@ -162,24 +160,24 @@ function FileProgressItem({ file }: { file: FileProgress }) {
 	};
 
 	return (
-		<div className="bg-card p-4">
+		<div className="border border-foreground/10 p-4">
 			<div className="mb-3 flex items-center justify-between">
-				<div className="flex min-w-0 flex-1 items-center gap-2">
+				<div className="flex min-w-0 flex-1 items-center gap-2.5">
 					{getIcon()}
 					<span className="truncate text-sm" title={file.name}>
 						{file.name}
 					</span>
 				</div>
-				<div className="flex items-center gap-3">
-					<span className="text-xs">{getStatusDisplay()}</span>
+				<div className="flex items-center gap-4">
+					<span className="text-xs font-normal">{getStatusDisplay()}</span>
 					<span className="text-xs text-muted-foreground">{formatBytes(file.totalBytes)}</span>
 				</div>
 			</div>
 
 			{file.status === "transferring" && (
 				<div className="space-y-2">
-					<Progress value={progress} className="h-[2px]" />
-					<div className="flex justify-between text-xs text-muted-foreground">
+					<Progress value={progress} className="h-px" />
+					<div className="flex justify-between text-xs text-muted-foreground pt-0.5">
 						<span>{formatBytes(file.transferredBytes)}</span>
 						<span>{formatBytes(file.totalBytes)}</span>
 					</div>
@@ -187,7 +185,7 @@ function FileProgressItem({ file }: { file: FileProgress }) {
 			)}
 
 			{file.error && (
-				<div className="mt-2 flex items-start gap-1 text-xs text-destructive">
+				<div className="mt-2 flex items-start gap-1.5 text-xs text-destructive pt-1">
 					<AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
 					<span>{file.error}</span>
 				</div>
