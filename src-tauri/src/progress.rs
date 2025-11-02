@@ -252,7 +252,7 @@ impl RateLimiter {
     pub async fn should_emit(&self) -> bool {
         let now = SystemTime::now();
         let last = *self.last_emission.read().await;
-        
+
         if now.duration_since(last).unwrap_or_default() >= self.min_interval {
             *self.last_emission.write().await = now;
             true

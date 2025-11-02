@@ -37,7 +37,8 @@ body {
 	border: none !important;
 	box-shadow: none !important;
 	border-radius: 0 !important;
-	font-family: "Monaco", "Menlo", "Ubuntu Mono", "Consolas", "source-code-pro", monospace !important;
+	font-family:
+		"Monaco", "Menlo", "Ubuntu Mono", "Consolas", "source-code-pro", monospace !important;
 }
 
 [data-sonner-toast][data-type="error"] {

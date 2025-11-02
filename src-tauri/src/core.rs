@@ -290,7 +290,7 @@ impl GinsengCore {
 
         // Process files sequentially with progress updates
         let mut file_infos = Vec::new();
-        
+
         for (idx, (file_path, base_path)) in file_paths.iter().enumerate() {
             let snapshot = tracker.get_snapshot().await;
             let file_id = snapshot.files[idx].file_id.clone();
@@ -321,9 +321,7 @@ impl GinsengCore {
             if rate_limiter.should_emit().await {
                 let snapshot = tracker.get_snapshot().await;
                 channel
-                    .send(ProgressEvent::TransferProgress {
-                        transfer: snapshot,
-                    })
+                    .send(ProgressEvent::TransferProgress { transfer: snapshot })
                     .ok();
             }
 

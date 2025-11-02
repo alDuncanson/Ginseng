@@ -9,7 +9,6 @@ pub fn validate_and_canonicalize_paths<T>(
     _channel: &Channel<T>,
     paths: Vec<String>,
 ) -> Result<Vec<PathBuf>, String> {
-
     paths
         .iter()
         .map(|path| {
@@ -141,7 +140,7 @@ mod tests {
         File::create(&file_path).unwrap();
 
         let paths = vec![file_path.to_string_lossy().to_string()];
-        let dummy_channel = Channel::new(|_| Ok(()));
+        let dummy_channel: Channel<()> = Channel::new(|_| Ok(()));
         let result = validate_and_canonicalize_paths(&dummy_channel, paths);
 
         assert!(result.is_ok());
@@ -153,7 +152,7 @@ mod tests {
     #[test]
     fn test_validate_nonexistent_file() {
         let paths = vec!["/this/path/does/not/exist.txt".to_string()];
-        let dummy_channel = Channel::new(|_| Ok(()));
+        let dummy_channel: Channel<()> = Channel::new(|_| Ok(()));
         let result = validate_and_canonicalize_paths(&dummy_channel, paths);
 
         assert!(result.is_err());
@@ -163,7 +162,7 @@ mod tests {
     #[test]
     fn test_validate_empty_paths() {
         let paths = vec![];
-        let dummy_channel = Channel::new(|_| Ok(()));
+        let dummy_channel: Channel<()> = Channel::new(|_| Ok(()));
         let result = validate_and_canonicalize_paths(&dummy_channel, paths);
 
         assert!(result.is_ok());

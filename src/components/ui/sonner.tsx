@@ -13,7 +13,8 @@ const Toaster = ({ ...props }: ToasterProps) => {
 						"group toast group-[.toaster]:bg-card group-[.toaster]:text-card-foreground group-[.toaster]:border-0 group-[.toaster]:shadow-none",
 					description: "group-[.toast]:text-card-foreground group-[.toast]:opacity-80",
 					actionButton: "group-[.toast]:bg-background group-[.toast]:text-foreground",
-					cancelButton: "group-[.toast]:bg-background group-[.toast]:text-foreground group-[.toast]:opacity-80",
+					cancelButton:
+						"group-[.toast]:bg-background group-[.toast]:text-foreground group-[.toast]:opacity-80",
 					success: "group-[.toast]:bg-card group-[.toast]:text-card-foreground",
 					error: "group-[.toast]:bg-destructive group-[.toast]:text-destructive-foreground",
 					warning: "group-[.toast]:bg-card group-[.toast]:text-card-foreground",

@@ -216,7 +216,11 @@ export function FileTransfer() {
 
 					<TabsContent value="send" className="space-y-8">
 						<div className="grid grid-cols-2 gap-3">
-							<Button variant="outline" onClick={selectFiles} className="justify-start h-auto py-3 border">
+							<Button
+								variant="outline"
+								onClick={selectFiles}
+								className="justify-start h-auto py-3 border"
+							>
 								<Files className="h-3.5 w-3.5 mr-2" />
 								<span className="font-normal">select files</span>
 							</Button>
@@ -274,7 +278,9 @@ export function FileTransfer() {
 						{ticket && (
 							<div className="border border-foreground/20 p-6">
 								<div className="space-y-4">
-									<div className="text-xs uppercase tracking-wider text-muted-foreground">Share Ticket</div>
+									<div className="text-xs uppercase tracking-wider text-muted-foreground">
+										Share Ticket
+									</div>
 									<div className="flex gap-2">
 										<Input value={ticket} readOnly className="text-xs border" />
 										<Button variant="outline" size="icon" onClick={copyTicket} className="border">
@@ -288,7 +294,9 @@ export function FileTransfer() {
 
 					<TabsContent value="receive" className="space-y-8">
 						<div className="space-y-3">
-							<Label className="text-xs uppercase tracking-wider text-muted-foreground">Ticket</Label>
+							<Label className="text-xs uppercase tracking-wider text-muted-foreground">
+								Ticket
+							</Label>
 							<Input
 								placeholder="paste share ticket here..."
 								value={receiveTicket}
@@ -310,7 +318,9 @@ export function FileTransfer() {
 						{lastDownload && (
 							<div className="border border-foreground/20 p-6">
 								<div className="space-y-6">
-									<div className="text-xs uppercase tracking-wider text-muted-foreground">Last Download</div>
+									<div className="text-xs uppercase tracking-wider text-muted-foreground">
+										Last Download
+									</div>
 									<div className="space-y-3">
 										<div className="flex justify-between text-sm py-1.5 border-b border-foreground/10">
 											<span className="text-muted-foreground">Type</span>
@@ -337,7 +347,9 @@ export function FileTransfer() {
 
 									{lastDownload.metadata.files.length > 0 && (
 										<div className="pt-2 space-y-3">
-											<div className="text-xs uppercase tracking-wider text-muted-foreground">Files</div>
+											<div className="text-xs uppercase tracking-wider text-muted-foreground">
+												Files
+											</div>
 											<div className="max-h-40 overflow-y-auto space-y-0 border-t border-foreground/10">
 												{lastDownload.metadata.files.map((file) => (
 													<div
