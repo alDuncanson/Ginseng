@@ -248,6 +248,19 @@ impl GinsengCore {
     ///
     /// Processes multiple files concurrently using tokio, providing streaming
     /// progress updates through the channel for each file and overall transfer.
+    ///
+    /// # Arguments
+    ///
+    /// * `channel` - Channel for sending progress events to the frontend
+    /// * `paths` - Vector of file or directory paths to share
+    ///
+    /// # Returns
+    ///
+    /// A ticket string that can be shared to download the files
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if paths are invalid, files cannot be read, or blob storage fails
     pub async fn share_files_parallel(
         &self,
         channel: Channel<ProgressEvent>,
@@ -358,6 +371,22 @@ impl GinsengCore {
     }
 
     /// Downloads files with parallel processing and real-time progress updates
+    ///
+    /// Parses the ticket, connects to the peer, downloads all files, and provides
+    /// streaming progress updates for each file and the overall transfer.
+    ///
+    /// # Arguments
+    ///
+    /// * `channel` - Channel for sending progress events to the frontend
+    /// * `ticket_str` - The ticket string received from the sender
+    ///
+    /// # Returns
+    ///
+    /// A tuple containing the share metadata and the path where files were saved
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the ticket is invalid, connection fails, or downloads fail
     pub async fn download_files_parallel(
         &self,
         channel: Channel<ProgressEvent>,
