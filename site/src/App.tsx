@@ -4,17 +4,14 @@ function App() {
 	return (
 		<div className="app">
 			<main className="main">
-				<div className="container">
-					<header className="header">
+				<div className="split-container">
+					<div className="content-side">
 						<h1 className="title">Ginseng</h1>
-						<p className="subtitle">Free and direct file sharing, globally.</p>
-					</header>
-
-					<div className="content">
+						<p className="subtitle">Free and direct file sharing, globally</p>
 						<p className="description">
-							Share files directly from your device—for free—with anyone, anywhere on the planet.
+							Share files directly from your device—for free—with anyone, anywhere on the
+							planet.
 						</p>
-
 						<div className="actions">
 							<a
 								href="https://github.com/alDuncanson/ginseng/releases/latest"
@@ -30,24 +27,26 @@ function App() {
 								target="_blank"
 								rel="noopener noreferrer"
 							>
-								Documentation
+								Docs
 							</a>
 						</div>
 					</div>
-
-					<footer className="footer">
-						<p>
-							Free and open source software •
-							<a
-								href="https://github.com/alDuncanson/ginseng"
-								target="_blank"
-								rel="noopener noreferrer"
-							>
-								View source
-							</a>
-						</p>
-					</footer>
+					<div className="demo-side">
+						<img src="/Ginseng/demo.gif" alt="Ginseng demo" className="demo-gif" />
+					</div>
 				</div>
+				<footer className="footer">
+					<p>
+						Free and open source software •{" "}
+						<a
+							href="https://github.com/alDuncanson/ginseng"
+							target="_blank"
+							rel="noopener noreferrer"
+						>
+							View source
+						</a>
+					</p>
+				</footer>
 			</main>
 		</div>
 	);

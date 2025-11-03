@@ -1,8 +1,6 @@
+![Demo](./public/demo.gif)
+
 <div align="center">
-
-<img src="src-tauri/icons/128x128.png" alt="Ginseng" width="80" height="80">
-
-# Ginseng
 
 [![CI](https://github.com/alDuncanson/ginseng/actions/workflows/ci.yml/badge.svg)](https://github.com/alDuncanson/ginseng/actions/workflows/ci.yml)
 [![Release](https://github.com/alDuncanson/ginseng/actions/workflows/release.yml/badge.svg)](https://github.com/alDuncanson/ginseng/releases)
