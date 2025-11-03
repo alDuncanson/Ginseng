@@ -4,9 +4,7 @@ use anyhow::Result;
 use std::path::{Path, PathBuf};
 
 /// Validate and canonicalize paths for ProgressEvent channel
-pub fn validate_and_canonicalize_paths(
-    paths: Vec<String>,
-) -> Result<Vec<PathBuf>, String> {
+pub fn validate_and_canonicalize_paths(paths: Vec<String>) -> Result<Vec<PathBuf>, String> {
     paths
         .iter()
         .map(|path| {

@@ -221,13 +221,9 @@ impl TransferProgress {
 #[serde(rename_all = "camelCase", tag = "event", content = "data")]
 pub enum ProgressEvent {
     /// Transfer has started
-    TransferStarted {
-        transfer: TransferProgress,
-    },
+    TransferStarted { transfer: TransferProgress },
     /// Overall transfer progress has been updated
-    TransferProgress {
-        transfer: TransferProgress,
-    },
+    TransferProgress { transfer: TransferProgress },
     /// Individual file progress has been updated
     FileProgress {
         transfer_id: TransferId,
@@ -240,9 +236,7 @@ pub enum ProgressEvent {
         message: Option<String>,
     },
     /// Transfer has completed successfully
-    TransferCompleted {
-        transfer: TransferProgress,
-    },
+    TransferCompleted { transfer: TransferProgress },
     /// Transfer has failed
     TransferFailed {
         transfer: TransferProgress,
@@ -397,6 +391,7 @@ impl RateLimiter {
 /// # Examples
 ///
 /// ```
+/// use ginseng_lib::progress::format_bytes;
 /// assert_eq!(format_bytes(0), "0 B");
 /// assert_eq!(format_bytes(1024), "1.00 KB");
 /// assert_eq!(format_bytes(1536), "1.50 KB");
