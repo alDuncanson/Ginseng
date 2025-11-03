@@ -9,8 +9,7 @@ function App() {
 						<h1 className="title">Ginseng</h1>
 						<p className="subtitle">Free and direct file sharing, globally</p>
 						<p className="description">
-							Share files directly from your device—for free—with anyone, anywhere on the
-							planet.
+							Share files directly from your device—for free—with anyone, anywhere on the planet.
 						</p>
 						<div className="actions">
 							<a
