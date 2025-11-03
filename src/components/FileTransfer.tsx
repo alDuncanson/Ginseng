@@ -1,14 +1,14 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Copy, Download, File, Files, Folder, Send, X } from "lucide-react";
+import { Copy, File, Files, Folder, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Badge } from "@/components/ui/badge";
+import { ParallelProgress } from "@/components/ParallelProgress";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { ProgressEvent, TransferProgress } from "@/types/progress";
 
 interface FileInfo {
 	name: string;
@@ -35,6 +35,9 @@ export function FileTransfer() {
 	const [receiveTicket, setReceiveTicket] = useState<string>("");
 	const [receiveLoading, setReceiveLoading] = useState(false);
 	const [lastDownload, setLastDownload] = useState<DownloadResult | null>(null);
+
+	const [uploadProgress, setUploadProgress] = useState<TransferProgress | null>(null);
+	const [downloadProgress, setDownloadProgress] = useState<TransferProgress | null>(null);
 
 	const selectFiles = async () => {
 		try {
@@ -81,15 +84,41 @@ export function FileTransfer() {
 			return;
 		}
 
+		const channel = new Channel<ProgressEvent>();
+		let generatedTicket = "";
+
+		channel.onmessage = (event: ProgressEvent) => {
+			switch (event.event) {
+				case "transferStarted":
+				case "transferProgress":
+					setUploadProgress(event.data.transfer);
+					break;
+				case "transferCompleted":
+					setUploadProgress(event.data.transfer);
+					if (generatedTicket) {
+						setTicket(generatedTicket);
+						toast.success("Share ticket generated!");
+					}
+					break;
+				case "transferFailed":
+					setUploadProgress(event.data.transfer);
+					toast.error(`Failed: ${event.data.error}`);
+					break;
+			}
+		};
+
 		setSendLoading(true);
+		setUploadProgress(null);
+
 		try {
-			const generatedTicket = await invoke<string>("share_files", {
+			generatedTicket = await invoke<string>("share_files_parallel", {
+				channel,
 				paths: selectedPaths,
 			});
 			setTicket(generatedTicket);
-			toast.success("Share ticket generated!");
 		} catch (error) {
 			toast.error(`Failed to share files: ${error}`);
+			setUploadProgress(null);
 		} finally {
 			setSendLoading(false);
 		}
@@ -110,16 +139,38 @@ export function FileTransfer() {
 			return;
 		}
 
+		const channel = new Channel<ProgressEvent>();
+
+		channel.onmessage = (event: ProgressEvent) => {
+			switch (event.event) {
+				case "transferStarted":
+				case "transferProgress":
+					setDownloadProgress(event.data.transfer);
+					break;
+				case "transferCompleted":
+					setDownloadProgress(event.data.transfer);
+					toast.success("Files downloaded successfully!");
+					break;
+				case "transferFailed":
+					setDownloadProgress(event.data.transfer);
+					toast.error(`Failed: ${event.data.error}`);
+					break;
+			}
+		};
+
 		setReceiveLoading(true);
+		setDownloadProgress(null);
+
 		try {
-			const result = await invoke<DownloadResult>("download_files", {
+			const result = await invoke<DownloadResult>("download_files_parallel", {
+				channel,
 				ticket: receiveTicket,
 			});
 			setLastDownload(result);
-			toast.success("Files downloaded successfully!");
 			setReceiveTicket("");
 		} catch (error) {
 			toast.error(`Failed to download files: ${error}`);
+			setDownloadProgress(null);
 		} finally {
 			setReceiveLoading(false);
 		}
@@ -129,7 +180,6 @@ export function FileTransfer() {
 		return path.split("/").pop() || path.split("\\").pop() || path;
 	};
 
-	// Keep in sync with format_file_size in cli.rs
 	const formatFileSize = (bytes: number): string => {
 		if (bytes === 0) return "0 B";
 		const k = 1024;
@@ -148,178 +198,168 @@ export function FileTransfer() {
 		return "Unknown";
 	};
 
-	const getSelectionSummary = () => {
-		if (selectedPaths.length === 0) return "No files selected";
-		if (selectedPaths.length === 1) {
-			const path = selectedPaths[0];
-			return getFileName(path);
-		}
-		return `${selectedPaths.length} items selected`;
-	};
-
 	return (
-		<div className="max-w-2xl mx-auto p-6">
-			<div className="text-center mb-8">
-				<h1 className="text-3xl font-bold mb-2">Ginseng</h1>
-				<p className="text-muted-foreground">Secure peer-to-peer file sharing</p>
-			</div>
+		<div className="min-h-screen p-12">
+			<div className="max-w-3xl mx-auto">
+				<div className="flex items-baseline justify-between mb-16 pb-4 border-b border-foreground/20">
+					<h1 className="text-5xl font-light tracking-wide">GINSENG</h1>
+					<div className="text-xs tracking-wider uppercase text-muted-foreground">
+						{new Date().toLocaleTimeString("en-US", { hour12: false })} UTC
+					</div>
+				</div>
 
-			<Tabs defaultValue="send" className="w-full">
-				<TabsList className="grid w-full grid-cols-2">
-					<TabsTrigger value="send">Send</TabsTrigger>
-					<TabsTrigger value="receive">Receive</TabsTrigger>
-				</TabsList>
+				<Tabs defaultValue="send" className="w-full">
+					<TabsList className="mb-12">
+						<TabsTrigger value="send">send</TabsTrigger>
+						<TabsTrigger value="receive">receive</TabsTrigger>
+					</TabsList>
 
-				<TabsContent value="send">
-					<Card>
-						<CardHeader>
-							<CardTitle className="flex items-center gap-2">
-								<Send className="h-5 w-5" />
-								Share Files
-							</CardTitle>
-						</CardHeader>
-						<CardContent className="space-y-4">
-							<div className="space-y-2">
-								<Label>Select Files or Folder</Label>
-								<div className="flex gap-2">
-									<Button variant="outline" onClick={selectFiles} className="flex-1 justify-start">
-										<Files className="h-4 w-4 mr-2" />
-										Select Files
-									</Button>
-									<Button variant="outline" onClick={selectFolder} className="flex-1 justify-start">
-										<Folder className="h-4 w-4 mr-2" />
-										Select Folder
-									</Button>
+					<TabsContent value="send" className="space-y-8">
+						<div className="grid grid-cols-2 gap-3">
+							<Button
+								variant="outline"
+								onClick={selectFiles}
+								className="justify-start h-auto py-3 border"
+							>
+								<Files className="h-3.5 w-3.5 mr-2" />
+								<span className="font-normal">select files</span>
+							</Button>
+							<Button
+								variant="outline"
+								onClick={selectFolder}
+								className="justify-start h-auto py-3 border"
+							>
+								<Folder className="h-3.5 w-3.5 mr-2" />
+								<span className="font-normal">select folder</span>
+							</Button>
+						</div>
+
+						{selectedPaths.length > 0 && (
+							<div className="space-y-4 pt-2">
+								<div className="text-xs uppercase tracking-wider text-muted-foreground">
+									Selected · {selectedPaths.length} {selectedPaths.length === 1 ? "item" : "items"}
+								</div>
+								<div className="space-y-0 border-t border-foreground/10">
+									{selectedPaths.map((path) => (
+										<div
+											key={path}
+											className="flex items-center justify-between py-2.5 border-b border-foreground/10 last:border-0"
+										>
+											<div className="flex items-center gap-3 flex-1 min-w-0">
+												<File className="h-3 w-3 flex-shrink-0 text-muted-foreground" />
+												<span className="text-sm truncate" title={path}>
+													{getFileName(path)}
+												</span>
+											</div>
+											<Button
+												variant="ghost"
+												size="sm"
+												onClick={() => removeFile(path)}
+												className="h-7 w-7 p-0 flex-shrink-0 hover:bg-transparent"
+											>
+												<X className="h-3.5 w-3.5" />
+											</Button>
+										</div>
+									))}
 								</div>
 							</div>
+						)}
 
-							{selectedPaths.length > 0 && (
-								<div className="space-y-2">
-									<Label>Selected Items ({selectedPaths.length})</Label>
-									<div className="max-h-40 overflow-y-auto space-y-1 p-2 border rounded">
-										{selectedPaths.map((path) => (
-											<div
-												key={path}
-												className="flex items-center justify-between p-2 bg-muted rounded text-sm"
-											>
-												<div className="flex items-center gap-2 flex-1 min-w-0">
-													<File className="h-4 w-4 flex-shrink-0" />
-													<span className="truncate" title={path}>
-														{getFileName(path)}
-													</span>
-												</div>
-												<Button
-													variant="ghost"
-													size="sm"
-													onClick={() => removeFile(path)}
-													className="h-6 w-6 p-0 flex-shrink-0"
-												>
-													<X className="h-3 w-3" />
-												</Button>
-											</div>
-										))}
+						<Button
+							onClick={sendFiles}
+							disabled={selectedPaths.length === 0 || sendLoading}
+							className="w-full h-11 font-normal"
+						>
+							{sendLoading ? "generating ticket..." : "generate share ticket"}
+						</Button>
+
+						{uploadProgress && <ParallelProgress transfer={uploadProgress} compact={false} />}
+
+						{ticket && (
+							<div className="border border-foreground/20 p-6">
+								<div className="space-y-4">
+									<div className="text-xs uppercase tracking-wider text-muted-foreground">
+										Share Ticket
 									</div>
-									<p className="text-sm text-muted-foreground">{getSelectionSummary()}</p>
-								</div>
-							)}
-
-							<Button
-								onClick={sendFiles}
-								disabled={selectedPaths.length === 0 || sendLoading}
-								className="w-full"
-							>
-								{sendLoading ? "Generating..." : "Generate Share Ticket"}
-							</Button>
-
-							{ticket && (
-								<div className="space-y-2">
-									<Label>Share Ticket</Label>
 									<div className="flex gap-2">
-										<Input value={ticket} readOnly className="font-mono text-xs" />
-										<Button variant="outline" size="icon" onClick={copyTicket}>
+										<Input value={ticket} readOnly className="text-xs border" />
+										<Button variant="outline" size="icon" onClick={copyTicket} className="border">
 											<Copy className="h-4 w-4" />
 										</Button>
 									</div>
-									<p className="text-sm text-muted-foreground">
-										Copy this ticket and send it to the receiver
-									</p>
 								</div>
-							)}
-						</CardContent>
-					</Card>
-				</TabsContent>
-
-				<TabsContent value="receive">
-					<Card>
-						<CardHeader>
-							<CardTitle className="flex items-center gap-2">
-								<Download className="h-5 w-5" />
-								Receive Files
-							</CardTitle>
-						</CardHeader>
-						<CardContent className="space-y-4">
-							<div className="space-y-2">
-								<Label>Ticket</Label>
-								<Input
-									placeholder="Paste the share ticket here..."
-									value={receiveTicket}
-									onChange={(e) => setReceiveTicket(e.target.value)}
-									className="font-mono text-xs"
-								/>
-								<p className="text-sm text-muted-foreground">
-									Files will be downloaded to your Downloads folder automatically
-								</p>
 							</div>
+						)}
+					</TabsContent>
 
-							<Button
-								onClick={receiveFiles}
-								disabled={!receiveTicket || receiveLoading}
-								className="w-full"
-							>
-								{receiveLoading ? "Downloading..." : "Download Files"}
-							</Button>
+					<TabsContent value="receive" className="space-y-8">
+						<div className="space-y-3">
+							<Label className="text-xs uppercase tracking-wider text-muted-foreground">
+								Ticket
+							</Label>
+							<Input
+								placeholder="paste share ticket here..."
+								value={receiveTicket}
+								onChange={(e) => setReceiveTicket(e.target.value)}
+								className="text-xs border"
+							/>
+						</div>
 
-							{lastDownload && (
-								<div className="space-y-3 p-4 border rounded bg-muted/50">
-									<Label>Last Download</Label>
-									<div className="space-y-2">
-										<div className="flex items-center justify-between">
-											<span className="text-sm font-medium">Type:</span>
-											<Badge variant="secondary">
-												{getShareTypeDisplay(lastDownload.metadata.share_type)}
-											</Badge>
+						<Button
+							onClick={receiveFiles}
+							disabled={!receiveTicket || receiveLoading}
+							className="w-full h-11 font-normal"
+						>
+							{receiveLoading ? "downloading..." : "download files"}
+						</Button>
+
+						{downloadProgress && <ParallelProgress transfer={downloadProgress} compact={false} />}
+
+						{lastDownload && (
+							<div className="border border-foreground/20 p-6">
+								<div className="space-y-6">
+									<div className="text-xs uppercase tracking-wider text-muted-foreground">
+										Last Download
+									</div>
+									<div className="space-y-3">
+										<div className="flex justify-between text-sm py-1.5 border-b border-foreground/10">
+											<span className="text-muted-foreground">Type</span>
+											<span>{getShareTypeDisplay(lastDownload.metadata.share_type)}</span>
 										</div>
-										<div className="flex items-center justify-between">
-											<span className="text-sm font-medium">Files:</span>
-											<span className="text-sm">{lastDownload.metadata.files.length}</span>
+
+										<div className="flex justify-between text-sm py-1.5 border-b border-foreground/10">
+											<span className="text-muted-foreground">Files</span>
+											<span>{lastDownload.metadata.files.length}</span>
 										</div>
-										<div className="flex items-center justify-between">
-											<span className="text-sm font-medium">Total Size:</span>
-											<span className="text-sm">
-												{formatFileSize(lastDownload.metadata.total_size)}
-											</span>
+
+										<div className="flex justify-between text-sm py-1.5 border-b border-foreground/10">
+											<span className="text-muted-foreground">Size</span>
+											<span>{formatFileSize(lastDownload.metadata.total_size)}</span>
 										</div>
-										<div className="flex items-center justify-between">
-											<span className="text-sm font-medium">Location:</span>
-											<span className="text-sm truncate ml-2" title={lastDownload.download_path}>
+
+										<div className="flex justify-between text-sm py-1.5">
+											<span className="text-muted-foreground">Location</span>
+											<span className="truncate ml-4 text-right" title={lastDownload.download_path}>
 												{lastDownload.download_path}
 											</span>
 										</div>
 									</div>
 
 									{lastDownload.metadata.files.length > 0 && (
-										<div className="space-y-1">
-											<span className="text-sm font-medium">Files:</span>
-											<div className="max-h-32 overflow-y-auto space-y-1">
+										<div className="pt-2 space-y-3">
+											<div className="text-xs uppercase tracking-wider text-muted-foreground">
+												Files
+											</div>
+											<div className="max-h-40 overflow-y-auto space-y-0 border-t border-foreground/10">
 												{lastDownload.metadata.files.map((file) => (
 													<div
 														key={file.relative_path}
-														className="flex items-center justify-between text-xs p-1 bg-background rounded"
+														className="flex items-center justify-between text-xs py-2 border-b border-foreground/10 last:border-0"
 													>
 														<span className="truncate" title={file.relative_path}>
 															{file.relative_path}
 														</span>
-														<span className="text-muted-foreground ml-2">
+														<span className="text-muted-foreground ml-4">
 															{formatFileSize(file.size)}
 														</span>
 													</div>
@@ -328,11 +368,11 @@ export function FileTransfer() {
 										</div>
 									)}
 								</div>
-							)}
-						</CardContent>
-					</Card>
-				</TabsContent>
-			</Tabs>
+							</div>
+						)}
+					</TabsContent>
+				</Tabs>
+			</div>
 		</div>
 	);
 }

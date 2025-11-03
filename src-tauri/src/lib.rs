@@ -1,5 +1,6 @@
 mod commands;
 pub mod core;
+pub mod progress;
 mod state;
 mod utils;
 use tauri::Manager;
@@ -22,6 +23,8 @@ pub fn run() {
             commands::share_files,
             commands::download_file,
             commands::download_files,
+            commands::share_files_parallel,
+            commands::download_files_parallel,
             commands::node_info
         ])
         .run(tauri::generate_context!())

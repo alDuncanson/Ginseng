@@ -3,22 +3,7 @@
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
-/// Validate and canonicalize a list of file paths
-///
-/// This function takes a vector of path strings and validates each one by:
-/// 1. Checking that the path exists
-/// 2. Converting it to a canonical (absolute) path
-/// 3. Resolving any symbolic links
-///
-/// # Arguments
-/// * `paths` - Vector of path strings to validate
-///
-/// # Returns
-/// A vector of canonicalized PathBuf instances
-///
-/// # Errors
-/// Returns an error if any path is invalid, doesn't exist, or cannot be canonicalized
-///
+/// Validate and canonicalize paths for ProgressEvent channel
 pub fn validate_and_canonicalize_paths(paths: Vec<String>) -> Result<Vec<PathBuf>, String> {
     paths
         .iter()
