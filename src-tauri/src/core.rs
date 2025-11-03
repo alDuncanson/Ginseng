@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::ipc::Channel;
+use tauri::ipc::{Channel, InvokeResponseBody};
 use tokio::fs;
 use walkdir::WalkDir;
 
@@ -374,34 +374,20 @@ impl GinsengCore {
         Ok((bundle.metadata, target_directory))
     }
 
-    /// CLI version - share files without progress tracking
+    /// CLI version - share files using parallelized implementation
     pub async fn share_files_cli(&self, paths: Vec<PathBuf>) -> Result<String> {
-        validate_paths_not_empty(&paths)?;
-        let metadata = create_share_metadata(&self.blobs, &paths).await?;
-        let metadata_hash = store_metadata_as_blob(&self.blobs, &metadata).await?;
-        let bundle = ShareBundle {
-            metadata,
-            metadata_hash,
-        };
-        let (bundle_hash, bundle_format) = store_bundle_as_blob(&self.blobs, &bundle).await?;
-        create_share_ticket(&self.endpoint, &bundle_hash, &bundle_format)
+        // Create a dummy channel that ignores progress events
+        let channel = Channel::new(|_event: InvokeResponseBody| Ok(()));
+        
+        self.share_files_parallel(channel, paths).await
     }
 
-    /// CLI version - download files without progress tracking
+    /// CLI version - download files using parallelized implementation
     pub async fn download_files_cli(&self, ticket_str: String) -> Result<(ShareMetadata, PathBuf)> {
-        let ticket = parse_ticket(&ticket_str)?;
-        let bundle =
-            download_and_parse_bundle(&self.endpoint, &self.blobs, &self.store, &ticket).await?;
-        let target_directory = determine_target_directory(&bundle.metadata)?;
-        download_all_files(
-            &self.endpoint,
-            &self.blobs,
-            &bundle.metadata,
-            &target_directory,
-            &ticket,
-        )
-        .await?;
-        Ok((bundle.metadata, target_directory))
+        // Create a dummy channel that ignores progress events
+        let channel = Channel::new(|_event: InvokeResponseBody| Ok(()));
+        
+        self.download_files_parallel(channel, ticket_str).await
     }
 
     /// Gracefully shuts down the router and endpoint.
@@ -440,140 +426,6 @@ fn create_router(endpoint: &Endpoint, blobs: &BlobsProtocol) -> Router {
     iroh::protocol::Router::builder(endpoint.clone())
         .accept(iroh_blobs::protocol::ALPN, blobs.clone())
         .spawn()
-}
-
-/// Creates share metadata based on the number and type of paths provided.
-///
-/// Uses different strategies:
-/// - Single path: Detects if it's a file or directory and handles accordingly
-/// - Multiple paths: Validates all are files and creates a multiple files share
-async fn create_share_metadata(blobs: &BlobsProtocol, paths: &[PathBuf]) -> Result<ShareMetadata> {
-    if paths.len() == 1 {
-        create_single_path_metadata(blobs, &paths[0]).await
-    } else {
-        create_multiple_files_metadata(blobs, paths).await
-    }
-}
-
-/// Creates metadata for a single file or directory path.
-///
-/// Canonicalizes the path and determines whether it's a file or directory,
-/// then delegates to the appropriate metadata creation function.
-async fn create_single_path_metadata(blobs: &BlobsProtocol, path: &Path) -> Result<ShareMetadata> {
-    let canonical_path = fs::canonicalize(path).await?;
-
-    match (canonical_path.is_file(), canonical_path.is_dir()) {
-        (true, false) => create_single_file_metadata(blobs, &canonical_path).await,
-        (false, true) => create_directory_metadata(blobs, &canonical_path).await,
-        _ => anyhow::bail!("Path is neither a file nor a directory"),
-    }
-}
-
-/// Creates metadata for sharing a single file.
-///
-/// Stores the file as a blob and creates a ShareMetadata with SingleFile type.
-async fn create_single_file_metadata(
-    blobs: &BlobsProtocol,
-    file_path: &Path,
-) -> Result<ShareMetadata> {
-    let file_info = create_file_info(blobs, file_path, file_path).await?;
-
-    Ok(ShareMetadata {
-        files: vec![file_info.clone()],
-        share_type: ShareType::SingleFile,
-        total_size: file_info.size,
-    })
-}
-
-/// Creates metadata for sharing an entire directory.
-///
-/// Recursively walks the directory, stores all files as blobs,
-/// and creates metadata preserving the directory structure.
-async fn create_directory_metadata(
-    blobs: &BlobsProtocol,
-    dir_path: &Path,
-) -> Result<ShareMetadata> {
-    let directory_name = extract_directory_name(dir_path);
-    let file_infos = collect_directory_files(blobs, dir_path).await?;
-    let total_size = calculate_total_size(file_infos.iter().map(|f| f.size));
-
-    Ok(ShareMetadata {
-        files: file_infos,
-        share_type: ShareType::Directory {
-            name: directory_name,
-        },
-        total_size,
-    })
-}
-
-/// Creates metadata for sharing multiple individual files.
-///
-/// Validates that all paths are files (no directories allowed in multi-file shares),
-/// stores each file as a blob, and creates metadata with MultipleFiles type.
-async fn create_multiple_files_metadata(
-    blobs: &BlobsProtocol,
-    paths: &[PathBuf],
-) -> Result<ShareMetadata> {
-    validate_all_paths_are_files(paths).await?;
-
-    let mut file_infos = Vec::new();
-    for path in paths {
-        let canonical_path = fs::canonicalize(path).await?;
-        let file_info = create_file_info(blobs, &canonical_path, &canonical_path).await?;
-        file_infos.push(file_info);
-    }
-
-    let total_size = calculate_total_size(file_infos.iter().map(|f| f.size));
-
-    Ok(ShareMetadata {
-        files: file_infos,
-        share_type: ShareType::MultipleFiles,
-        total_size,
-    })
-}
-
-/// Validates that all provided paths are files, not directories.
-///
-/// Used for multiple file sharing to ensure consistent behavior.
-///
-/// # Errors
-///
-/// Returns an error if any path is not a file.
-async fn validate_all_paths_are_files(paths: &[PathBuf]) -> Result<()> {
-    for path in paths {
-        let canonical_path = fs::canonicalize(path).await?;
-        if !canonical_path.is_file() {
-            anyhow::bail!("All paths must be files when sharing multiple items");
-        }
-    }
-    Ok(())
-}
-
-/// Creates FileInfo metadata for a single file.
-///
-/// Extracts the file name, calculates the relative path from the base path,
-/// gets the file size, and stores the file content as a blob.
-///
-/// # Arguments
-///
-/// * `file_path` - The absolute path to the file
-/// * `base_path` - The base path for calculating relative paths
-async fn create_file_info(
-    blobs: &BlobsProtocol,
-    file_path: &Path,
-    base_path: &Path,
-) -> Result<FileInfo> {
-    let file_name = extract_file_name(file_path);
-    let relative_path = calculate_relative_path(file_path, base_path)?;
-    let file_size = get_file_size(file_path).await?;
-    let file_hash = store_file_as_blob(blobs, file_path).await?;
-
-    Ok(FileInfo {
-        name: file_name,
-        relative_path,
-        size: file_size,
-        hash: file_hash,
-    })
 }
 
 /// Gets the size of a file in bytes.
@@ -796,43 +648,6 @@ async fn upload_one_file(
     Ok(())
 }
 
-/// Stores a file as a content-addressed blob and returns its hash.
-///
-/// The file is read and stored in the blob store, returning a hash
-/// that can be used to retrieve the content later.
-async fn store_file_as_blob(blobs: &BlobsProtocol, file_path: &Path) -> Result<String> {
-    blobs
-        .store()
-        .add_path(file_path)
-        .await
-        .map(|tag| tag.hash.to_string())
-        .map_err(|error| {
-            anyhow::anyhow!(
-                "Failed to store file '{}' as blob: {}",
-                file_path.display(),
-                error
-            )
-        })
-}
-
-/// Recursively collects all files in a directory and creates FileInfo for each.
-///
-/// Uses WalkDir to traverse the directory tree and processes only regular files,
-/// creating FileInfo structures with paths relative to the directory root.
-async fn collect_directory_files(blobs: &BlobsProtocol, dir_path: &Path) -> Result<Vec<FileInfo>> {
-    let mut file_infos = Vec::new();
-
-    for entry in WalkDir::new(dir_path).into_iter().filter_map(Result::ok) {
-        let path = entry.path();
-        if path.is_file() {
-            let file_info = create_file_info(blobs, path, dir_path).await?;
-            file_infos.push(file_info);
-        }
-    }
-
-    Ok(file_infos)
-}
-
 /// Collects all file paths from the given paths (files and directories)
 async fn collect_file_paths(paths: &[PathBuf]) -> Result<Vec<(PathBuf, PathBuf)>> {
     let mut file_paths = Vec::new();
@@ -992,88 +807,6 @@ fn determine_target_directory(metadata: &ShareMetadata) -> Result<PathBuf> {
     Ok(target_dir)
 }
 
-/// Downloads all files referenced in the metadata to the target directory.
-///
-/// Uses a two-phase approach:
-/// 1. Download all file blobs to ensure they're available
-/// 2. Export all files to their target locations with proper directory structure
-async fn download_all_files(
-    endpoint: &Endpoint,
-    blobs: &BlobsProtocol,
-    metadata: &ShareMetadata,
-    target_dir: &Path,
-    ticket: &BlobTicket,
-) -> Result<()> {
-    let downloader = blobs.store().downloader(endpoint);
-
-    for file_info in &metadata.files {
-        let file_hash: Hash = file_info.hash.parse::<Hash>().map_err(|error| {
-            anyhow::anyhow!("Invalid hash for file '{}': {}", file_info.name, error)
-        })?;
-
-        downloader
-            .download(file_hash, Some(ticket.addr().id))
-            .await
-            .map_err(|error| {
-                anyhow::anyhow!(
-                    "Failed to download file '{}' ({}): {}",
-                    file_info.name,
-                    file_hash,
-                    error
-                )
-            })?;
-    }
-
-    for file_info in &metadata.files {
-        export_individual_file(blobs, file_info, target_dir)
-            .await
-            .map_err(|error| {
-                anyhow::anyhow!("Failed to export file '{}': {}", file_info.name, error)
-            })?;
-    }
-
-    Ok(())
-}
-
-/// Exports a single file from the blob store to its target location.
-///
-/// Creates necessary parent directories and exports the file using
-/// its relative path to maintain directory structure.
-async fn export_individual_file(
-    blobs: &BlobsProtocol,
-    file_info: &FileInfo,
-    target_dir: &Path,
-) -> Result<()> {
-    let file_hash: Hash = file_info.hash.parse::<Hash>().map_err(|error| {
-        anyhow::anyhow!("Invalid hash for file '{}': {}", file_info.name, error)
-    })?;
-    let target_file_path = target_dir.join(&file_info.relative_path);
-
-    ensure_parent_directory_exists(&target_file_path)
-        .await
-        .map_err(|error| {
-            anyhow::anyhow!(
-                "Failed to create directory for '{}': {}",
-                file_info.relative_path,
-                error
-            )
-        })?;
-
-    blobs
-        .export(file_hash, &target_file_path)
-        .await
-        .map_err(|error| {
-            anyhow::anyhow!(
-                "Failed to export '{}' to '{}': {}",
-                file_info.name,
-                target_file_path.display(),
-                error
-            )
-        })?;
-
-    Ok(())
-}
-
 /// Ensures that the parent directory of a file path exists.
 ///
 /// Creates all necessary parent directories if they don't exist.
@@ -1166,51 +899,4 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[tokio::test]
-    async fn test_store_json_as_blob() {
-        let core = GinsengCore::new().await.unwrap();
-        let json = r#"{"test": "data"}"#;
-
-        let result = store_json_as_blob(&core.blobs, json).await;
-        assert!(result.is_ok());
-        assert!(!result.unwrap().is_empty());
-    }
-
-    #[tokio::test]
-    async fn test_create_single_file_metadata_with_temp_file() {
-        let core = GinsengCore::new().await.unwrap();
-        let temp_dir = TempDir::new().unwrap();
-        let temp_file = temp_dir.path().join("test.txt");
-        tokio::fs::write(&temp_file, "test content").await.unwrap();
-
-        let result = create_single_file_metadata(&core.blobs, &temp_file).await;
-        assert!(result.is_ok());
-
-        let metadata = result.unwrap();
-        assert_eq!(metadata.share_type, ShareType::SingleFile);
-        assert_eq!(metadata.files.len(), 1);
-        assert_eq!(metadata.files[0].name, "test.txt");
-        assert_eq!(metadata.total_size, 12);
-    }
-
-    #[tokio::test]
-    async fn test_create_directory_metadata_with_temp_dir() {
-        let core = GinsengCore::new().await.unwrap();
-        let temp_dir = TempDir::new().unwrap();
-        let sub_dir = temp_dir.path().join("subdir");
-        tokio::fs::create_dir(&sub_dir).await.unwrap();
-
-        let file1 = temp_dir.path().join("file1.txt");
-        let file2 = sub_dir.join("file2.txt");
-        tokio::fs::write(&file1, "content1").await.unwrap();
-        tokio::fs::write(&file2, "content2").await.unwrap();
-
-        let result = create_directory_metadata(&core.blobs, temp_dir.path()).await;
-        assert!(result.is_ok());
-
-        let metadata = result.unwrap();
-        assert!(matches!(metadata.share_type, ShareType::Directory { .. }));
-        assert_eq!(metadata.files.len(), 2);
-        assert_eq!(metadata.total_size, 16);
-    }
 }
