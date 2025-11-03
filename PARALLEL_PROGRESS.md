@@ -119,10 +119,10 @@ await invoke("share_files_parallel", { channel, paths });
 - Returns `DownloadResult` with metadata and path
 - Emits per-file and overall progress
 
-### Legacy Commands (Still Available)
+### Legacy Commands (Removed)
 
-**`share_files(channel, paths)`** - Old simple progress (kept for CLI)
-**`download_files(ticket)`** - No progress tracking (kept for CLI)
+**`share_files(channel, paths)`** - Old simple progress (removed)
+**`download_files(ticket)`** - No progress tracking (removed)
 
 ## CLI Support
 
@@ -205,10 +205,10 @@ let cancel_token = CancellationToken::new();
 ## Migration Notes
 
 **For Existing Code:**
-- Old `share_files()` and `download_files()` commands still work
-- New parallel commands are opt-in
-- Frontend detects and uses parallel version by default
+- Old `share_files()` and `download_files()` commands have been removed
+- Only parallel progress commands are available
+- Frontend uses parallel version by default
 - CLI uses non-progress versions
 
 **Breaking Changes:**
-- None - fully backward compatible
+- Removed old `share_files()` and `download_files()` commands

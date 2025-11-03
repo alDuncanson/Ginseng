@@ -1,4 +1,3 @@
-use crate::commands::DownloadEvent;
 use crate::progress::{
     FileProgress, FileStatus, ProgressEvent, ProgressTracker, RateLimiter, TransferStage,
     TransferType,
@@ -136,105 +135,9 @@ impl GinsengCore {
     /// - Any path doesn't exist or isn't accessible
     /// - File content cannot be stored as blobs
     /// - Metadata cannot be serialized or stored
-    pub async fn share_files(
-        &self,
-        channel: &Channel<DownloadEvent<'_>>,
-        paths: Vec<PathBuf>,
-    ) -> Result<String> {
-        validate_paths_not_empty(&paths)?;
 
-        channel
-            .send(DownloadEvent::Progress {
-                detail: "Creating share metadata",
-            })
-            .unwrap();
 
-        let metadata = create_share_metadata(&self.blobs, &paths).await?;
 
-        channel
-            .send(DownloadEvent::Progress {
-                detail: "Storing share bundle",
-            })
-            .unwrap();
-
-        let metadata_hash = store_metadata_as_blob(&self.blobs, &metadata).await?;
-
-        channel
-            .send(DownloadEvent::Progress {
-                detail: "Generating share ticket",
-            })
-            .unwrap();
-
-        let bundle = ShareBundle {
-            metadata,
-            metadata_hash,
-        };
-
-        channel
-            .send(DownloadEvent::Progress {
-                detail: "Storing bundle as blob",
-            })
-            .unwrap();
-
-        let (bundle_hash, bundle_format) = store_bundle_as_blob(&self.blobs, &bundle).await?;
-
-        channel
-            .send(DownloadEvent::Progress {
-                detail: "Creating share ticket",
-            })
-            .unwrap();
-
-        let ticket = create_share_ticket(&self.endpoint, &bundle_hash, &bundle_format);
-
-        channel
-            .send(DownloadEvent::Completed {
-                detail: "Share ticket created successfully",
-            })
-            .unwrap();
-
-        ticket
-    }
-
-    /// Downloads files from a ticket and returns metadata and download location.
-    ///
-    /// Parses the provided ticket, establishes a connection to the sharing peer,
-    /// downloads the bundle metadata, and then downloads all referenced files
-    /// to an appropriate directory in the user's Downloads folder.
-    ///
-    /// # Arguments
-    ///
-    /// * `ticket_str` - The ticket string received from someone sharing files
-    ///
-    /// # Returns
-    ///
-    /// A tuple containing:
-    /// - The share metadata describing what was downloaded
-    /// - The path where files were saved
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The ticket string is invalid
-    /// - Connection to the peer fails
-    /// - Bundle or file downloads fail
-    /// - Files cannot be written to disk
-    pub async fn download_files(&self, ticket_str: String) -> Result<(ShareMetadata, PathBuf)> {
-        let ticket = parse_ticket(&ticket_str)?;
-        let bundle =
-            download_and_parse_bundle(&self.endpoint, &self.blobs, &self.store, &ticket).await?;
-        let target_directory = determine_target_directory(&bundle.metadata)?;
-
-        download_all_files(
-            &self.endpoint,
-            &self.blobs,
-            &bundle.metadata,
-            &target_directory,
-            &ticket,
-        )
-        .await?;
-
-        Ok((bundle.metadata, target_directory))
-    }
 
     /// Returns information about this node's network configuration.
     ///
