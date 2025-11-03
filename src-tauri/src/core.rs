@@ -8,10 +8,12 @@ use crate::utils::{
 };
 use anyhow::Result;
 
+use futures::stream::{self, StreamExt};
 use iroh::{endpoint::Connection, protocol::Router, Endpoint, RelayMode};
 use iroh_blobs::{store::mem::MemStore, ticket::BlobTicket, BlobsProtocol, Hash};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 use tauri::ipc::Channel;
 use tokio::fs;
@@ -113,32 +115,6 @@ impl GinsengCore {
         })
     }
 
-    /// Shares the specified files or directories and returns a ticket string.
-    ///
-    /// This function processes the provided paths, creates metadata describing
-    /// the content, stores all files as content-addressed blobs, and generates
-    /// a shareable ticket that others can use to download the content.
-    ///
-    /// # Arguments
-    ///
-    /// * `channel` - Channel to send download events
-    /// * `paths` - Vector of file or directory paths to share
-    ///
-    /// # Returns
-    ///
-    /// A ticket string that can be shared with others to download the content.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The paths vector is empty
-    /// - Any path doesn't exist or isn't accessible
-    /// - File content cannot be stored as blobs
-    /// - Metadata cannot be serialized or stored
-
-
-
-
     /// Returns information about this node's network configuration.
     ///
     /// Provides details about the node ID, direct addresses, and relay URL
@@ -204,44 +180,56 @@ impl GinsengCore {
 
         tracker.set_stage(TransferStage::Transferring).await;
 
-        // Process files sequentially with progress updates
+        // Process files in parallel with streaming progress
+        let upload_concurrency = std::cmp::min(8, num_cpus::get());
+        let (file_info_tx, mut file_info_rx) = tokio::sync::mpsc::unbounded_channel::<FileInfo>();
+        let channel = Arc::new(channel);
+
+        // Create file entries with IDs
+        let snapshot = tracker.get_snapshot().await;
+        let file_entries: Vec<_> = file_paths
+            .iter()
+            .enumerate()
+            .map(|(idx, (path, base))| {
+                (
+                    path.clone(),
+                    base.clone(),
+                    snapshot.files[idx].file_id.clone(),
+                )
+            })
+            .collect();
+
+        // Process files concurrently
+        let blobs = self.blobs.clone();
+        let tracker_clone = tracker.clone();
+        let limiter_clone = rate_limiter.clone();
+        let channel_clone = channel.clone();
+        let tx_clone = file_info_tx.clone();
+
+        stream::iter(file_entries)
+            .for_each_concurrent(upload_concurrency, move |(path, base, file_id)| {
+                let blobs = blobs.clone();
+                let tracker = tracker_clone.clone();
+                let channel = channel_clone.clone();
+                let limiter = limiter_clone.clone();
+                let tx = tx_clone.clone();
+
+                async move {
+                    if let Err(e) =
+                        upload_one_file(path, base, file_id, blobs, tracker, channel, limiter, tx)
+                            .await
+                    {
+                        eprintln!("Upload failed: {}", e);
+                    }
+                }
+            })
+            .await;
+
+        // Close sender and collect results
+        drop(file_info_tx);
         let mut file_infos = Vec::new();
-
-        for (idx, (file_path, base_path)) in file_paths.iter().enumerate() {
-            let snapshot = tracker.get_snapshot().await;
-            let file_id = snapshot.files[idx].file_id.clone();
-
-            tracker
-                .update_file(&file_id, |f| {
-                    f.status = FileStatus::Transferring;
-                })
-                .await;
-
-            channel
-                .send(ProgressEvent::FileProgress {
-                    transfer_id: snapshot.transfer_id.clone(),
-                    file: snapshot.files[idx].clone(),
-                })
-                .ok();
-
-            // Store file as blob
-            let file_info = create_file_info(&self.blobs, file_path, base_path).await?;
-
-            tracker
-                .update_file(&file_id, |f| {
-                    f.status = FileStatus::Completed;
-                    f.transferred_bytes = f.total_bytes;
-                })
-                .await;
-
-            if rate_limiter.should_emit().await {
-                let snapshot = tracker.get_snapshot().await;
-                channel
-                    .send(ProgressEvent::TransferProgress { transfer: snapshot })
-                    .ok();
-            }
-
-            file_infos.push(file_info);
+        while let Some(info) = file_info_rx.recv().await {
+            file_infos.push(info);
         }
 
         let total_size = calculate_total_size(file_infos.iter().map(|f| f.size));
@@ -331,48 +319,50 @@ impl GinsengCore {
             })
             .ok();
 
-        // Download files (sequentially for now - parallel version needs more careful lifetime management)
-        let downloader = self.blobs.store().downloader(&self.endpoint);
+        // Download files in parallel with streaming progress
+        let download_concurrency = 6;
+        let channel = Arc::new(channel);
 
-        for (idx, file_info) in bundle.metadata.files.iter().enumerate() {
-            let snapshot = tracker.get_snapshot().await;
-            let file_id = snapshot.files[idx].file_id.clone();
+        // Create file entries with IDs
+        let snapshot = tracker.get_snapshot().await;
+        let file_entries: Vec<_> = bundle
+            .metadata
+            .files
+            .iter()
+            .enumerate()
+            .map(|(idx, file)| (file.clone(), snapshot.files[idx].file_id.clone()))
+            .collect();
 
-            tracker
-                .update_file(&file_id, |f| {
-                    f.status = FileStatus::Transferring;
-                })
-                .await;
+        // Process downloads concurrently
+        let endpoint = self.endpoint.clone();
+        let blobs = self.blobs.clone();
+        let tracker_clone = tracker.clone();
+        let limiter_clone = rate_limiter.clone();
+        let channel_clone = channel.clone();
+        let peer_id = ticket.addr().id;
+        let target_dir = target_directory.clone();
 
-            let file_hash: Hash = file_info
-                .hash
-                .parse()
-                .map_err(|e| anyhow::anyhow!("Invalid hash: {}", e))?;
+        stream::iter(file_entries)
+            .for_each_concurrent(download_concurrency, move |(file_info, file_id)| {
+                let endpoint = endpoint.clone();
+                let blobs = blobs.clone();
+                let tracker = tracker_clone.clone();
+                let channel = channel_clone.clone();
+                let limiter = limiter_clone.clone();
+                let target_dir = target_dir.clone();
 
-            // Download file
-            downloader
-                .download(file_hash, Some(ticket.addr().id))
-                .await
-                .map_err(|e| anyhow::anyhow!("Download failed: {}", e))?;
-
-            // Export to file system
-            export_individual_file(&self.blobs, file_info, &target_directory).await?;
-
-            tracker
-                .update_file(&file_id, |f| {
-                    f.status = FileStatus::Completed;
-                    f.transferred_bytes = f.total_bytes;
-                })
-                .await;
-
-            if rate_limiter.should_emit().await {
-                channel
-                    .send(ProgressEvent::TransferProgress {
-                        transfer: tracker.get_snapshot().await,
-                    })
-                    .ok();
-            }
-        }
+                async move {
+                    if let Err(e) = download_one_file(
+                        file_info, file_id, endpoint, blobs, peer_id, target_dir, tracker, channel,
+                        limiter,
+                    )
+                    .await
+                    {
+                        eprintln!("Download failed: {}", e);
+                    }
+                }
+            })
+            .await;
 
         tracker.complete().await;
         channel
@@ -598,6 +588,212 @@ async fn get_file_size(file_path: &Path) -> Result<u64> {
                 error
             )
         })
+}
+
+/// Downloads a single file with streaming progress updates
+///
+/// Processes download progress events and updates the tracker in real-time
+async fn download_one_file(
+    file_info: FileInfo,
+    file_id: String,
+    endpoint: Endpoint,
+    blobs: BlobsProtocol,
+    peer_id: iroh::EndpointId,
+    target_dir: PathBuf,
+    tracker: ProgressTracker,
+    channel: Arc<Channel<ProgressEvent>>,
+    limiter: RateLimiter,
+) -> Result<()> {
+    use iroh_blobs::api::downloader::DownloadProgressItem as DP;
+
+    tracker
+        .update_file(&file_id, |f| {
+            f.status = FileStatus::Transferring;
+        })
+        .await;
+
+    let file_hash: Hash = file_info
+        .hash
+        .parse()
+        .map_err(|e| anyhow::anyhow!("Invalid hash: {}", e))?;
+
+    // Start streaming download
+    let downloader = blobs.store().downloader(&endpoint);
+    let download = downloader.download(file_hash, Some(peer_id));
+    let mut stream = download.stream().await?;
+
+    while let Some(evt) = stream.next().await {
+        match evt {
+            DP::Progress(total_bytes) => {
+                let transferred = total_bytes.min(file_info.size);
+                tracker
+                    .update_file(&file_id, |f| {
+                        f.transferred_bytes = transferred;
+                    })
+                    .await;
+            }
+            DP::Error(e) => {
+                return Err(anyhow::anyhow!("Download error: {}", e));
+            }
+            DP::DownloadError => {
+                return Err(anyhow::anyhow!(
+                    "Download failed for file '{}'",
+                    file_info.name
+                ));
+            }
+            _ => {
+                // Handle other events like TryProvider, ProviderFailed, PartComplete
+            }
+        }
+
+        // Rate-limited progress updates
+        if limiter.should_emit().await {
+            channel
+                .send(ProgressEvent::TransferProgress {
+                    transfer: tracker.get_snapshot().await,
+                })
+                .ok();
+        }
+    }
+
+    // Stream complete - export to filesystem
+    let target_path = target_dir.join(&file_info.relative_path);
+    ensure_parent_directory_exists(&target_path).await?;
+    blobs
+        .export(file_hash, &target_path)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to export file '{}': {}", file_info.name, e))?;
+
+    tracker
+        .update_file(&file_id, |f| {
+            f.transferred_bytes = f.total_bytes;
+            f.status = FileStatus::Completed;
+        })
+        .await;
+
+    // Force emit on completion
+    limiter.force_emit().await;
+    channel
+        .send(ProgressEvent::TransferProgress {
+            transfer: tracker.get_snapshot().await,
+        })
+        .ok();
+
+    Ok(())
+}
+
+/// Uploads a single file with streaming progress updates
+///
+/// Processes add_path progress events and updates the tracker in real-time
+async fn upload_one_file(
+    path: PathBuf,
+    base: PathBuf,
+    file_id: String,
+    blobs: BlobsProtocol,
+    tracker: ProgressTracker,
+    channel: Arc<Channel<ProgressEvent>>,
+    limiter: RateLimiter,
+    fileinfo_tx: tokio::sync::mpsc::UnboundedSender<FileInfo>,
+) -> Result<()> {
+    use iroh_blobs::api::blobs::AddProgressItem;
+
+    tracker
+        .update_file(&file_id, |f| {
+            f.status = FileStatus::Transferring;
+        })
+        .await;
+
+    let name = extract_file_name(&path);
+    let relative_path = calculate_relative_path(&path, &base)?;
+
+    // Start streaming add
+    let add_progress = blobs.store().add_path(path.clone());
+    let mut stream = add_progress.stream().await;
+
+    let mut copy_bytes = 0u64;
+    let mut outboard_bytes = 0u64;
+    let mut total = None;
+
+    while let Some(evt) = stream.next().await {
+        match evt {
+            AddProgressItem::Size(sz) => {
+                total = Some(sz);
+                tracker
+                    .update_file(&file_id, |f| {
+                        if f.total_bytes == 0 {
+                            f.total_bytes = sz;
+                        }
+                    })
+                    .await;
+            }
+            AddProgressItem::CopyProgress(off) => {
+                copy_bytes = off;
+                if let Some(t) = total {
+                    let transferred = copy_bytes.max(outboard_bytes).min(t);
+                    tracker
+                        .update_file(&file_id, |f| {
+                            f.transferred_bytes = transferred;
+                        })
+                        .await;
+                }
+            }
+            AddProgressItem::OutboardProgress(off) => {
+                outboard_bytes = off;
+                if let Some(t) = total {
+                    let transferred = copy_bytes.max(outboard_bytes).min(t);
+                    tracker
+                        .update_file(&file_id, |f| {
+                            f.transferred_bytes = transferred;
+                        })
+                        .await;
+                }
+            }
+            AddProgressItem::CopyDone => {
+                // Optional: could emit status change here
+            }
+            AddProgressItem::Done(tag) => {
+                let hash = tag.hash().to_string();
+                let size = total.unwrap_or(0);
+
+                tracker
+                    .update_file(&file_id, |f| {
+                        f.transferred_bytes = f.total_bytes;
+                        f.status = FileStatus::Completed;
+                    })
+                    .await;
+
+                // Force emit on completion
+                limiter.force_emit().await;
+                channel
+                    .send(ProgressEvent::TransferProgress {
+                        transfer: tracker.get_snapshot().await,
+                    })
+                    .ok();
+
+                let info = FileInfo {
+                    name: name.clone(),
+                    relative_path: relative_path.clone(),
+                    size,
+                    hash,
+                };
+                fileinfo_tx.send(info).ok();
+            }
+            AddProgressItem::Error(e) => {
+                return Err(anyhow::anyhow!("Add progress error: {}", e));
+            }
+        }
+
+        // Rate-limited progress updates
+        if limiter.should_emit().await {
+            channel
+                .send(ProgressEvent::TransferProgress {
+                    transfer: tracker.get_snapshot().await,
+                })
+                .ok();
+        }
+    }
+
+    Ok(())
 }
 
 /// Stores a file as a content-addressed blob and returns its hash.
