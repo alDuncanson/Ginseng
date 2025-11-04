@@ -7,7 +7,6 @@ use crate::utils::{
     get_downloads_directory, validate_paths_not_empty,
 };
 use anyhow::Result;
-
 use futures::stream::{self, StreamExt};
 use iroh::{endpoint::Connection, protocol::Router, Endpoint, RelayMode};
 use iroh_blobs::{store::mem::MemStore, ticket::BlobTicket, BlobsProtocol, Hash};
@@ -150,7 +149,6 @@ impl GinsengCore {
         let tracker = ProgressTracker::new(uuid::Uuid::new_v4().to_string(), TransferType::Upload);
         let rate_limiter = RateLimiter::new(Duration::from_millis(100));
 
-        // Send initial event
         channel
             .send(ProgressEvent::TransferStarted {
                 transfer: tracker.get_snapshot().await,
@@ -159,10 +157,8 @@ impl GinsengCore {
 
         tracker.set_stage(TransferStage::Initializing).await;
 
-        // Collect file paths to process
         let file_paths = collect_file_paths(&paths).await?;
 
-        // Initialize file progress entries
         for (file_path, base_path) in &file_paths {
             let name = extract_file_name(file_path);
             let relative_path = calculate_relative_path(file_path, base_path)?;
@@ -378,7 +374,7 @@ impl GinsengCore {
     pub async fn share_files_cli(&self, paths: Vec<PathBuf>) -> Result<String> {
         // Create a dummy channel that ignores progress events
         let channel = Channel::new(|_event: InvokeResponseBody| Ok(()));
-        
+
         self.share_files_parallel(channel, paths).await
     }
 
@@ -386,7 +382,7 @@ impl GinsengCore {
     pub async fn download_files_cli(&self, ticket_str: String) -> Result<(ShareMetadata, PathBuf)> {
         // Create a dummy channel that ignores progress events
         let channel = Channel::new(|_event: InvokeResponseBody| Ok(()));
-        
+
         self.download_files_parallel(channel, ticket_str).await
     }
 
@@ -898,5 +894,4 @@ mod tests {
         let result = parse_ticket("invalid_ticket");
         assert!(result.is_err());
     }
-
 }
