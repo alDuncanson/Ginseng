@@ -301,41 +301,25 @@ impl GinsengCore {
             })
             .collect();
 
-        let endpoint_clone = self.endpoint.clone();
-        let blob_protocol_clone = self.blob_protocol.clone();
-        let progress_tracker_clone = progress_tracker.clone();
-        let progress_rate_limiter_clone = progress_rate_limiter.clone();
-        let progress_channel_clone = progress_channel.clone();
         let peer_id = ticket.addr().id;
-        let target_directory_clone = target_directory.clone();
 
         stream::iter(download_tasks)
-            .for_each_concurrent(download_concurrency, move |download_task| {
-                let endpoint = endpoint_clone.clone();
-                let blob_protocol = blob_protocol_clone.clone();
-                let progress_tracker = progress_tracker_clone.clone();
-                let progress_channel = progress_channel_clone.clone();
-                let progress_rate_limiter = progress_rate_limiter_clone.clone();
-                let target_directory = target_directory_clone.clone();
-
-                async move {
-                    if let Err(error) = download_one_file(
-                        download_task.file_info,
-                        download_task.file_id,
-                        endpoint,
-                        blob_protocol,
-                        peer_id,
-                        target_directory,
-                        progress_tracker,
-                        progress_channel,
-                        progress_rate_limiter,
-                    )
-                    .await
-                    {
-                        eprintln!("Download failed: {}", error);
-                    }
-                }
+            .map(|download_task| {
+                download_one_file(
+                    download_task.file_info,
+                    download_task.file_id,
+                    self.endpoint.clone(),
+                    self.blob_protocol.clone(),
+                    peer_id,
+                    target_directory.clone(),
+                    progress_tracker.clone(),
+                    progress_channel.clone(),
+                    progress_rate_limiter.clone(),
+                )
             })
+            .buffer_unordered(download_concurrency)
+            .filter_map(|result| async move { result.ok() })
+            .collect::<Vec<_>>()
             .await;
 
         progress_tracker.complete().await;
