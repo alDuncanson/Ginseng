@@ -3,7 +3,22 @@
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
-/// Validate and canonicalize paths for ProgressEvent channel
+/// Validates and converts path strings to canonical absolute paths
+///
+/// Ensures each path exists and resolves it to an absolute canonical form,
+/// which is necessary for consistent file operations.
+///
+/// # Arguments
+///
+/// * `paths` - Vector of path strings to validate
+///
+/// # Returns
+///
+/// Vector of canonicalized PathBuf instances
+///
+/// # Errors
+///
+/// Returns an error if any path does not exist or cannot be canonicalized
 pub fn validate_and_canonicalize_paths(paths: Vec<String>) -> Result<Vec<PathBuf>, String> {
     paths
         .iter()

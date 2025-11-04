@@ -3,12 +3,6 @@ use crate::state::{AppState, DownloadResult};
 use crate::utils::validate_and_canonicalize_paths;
 use tauri::ipc::Channel;
 
-
-
-
-
-
-
 /// Get information about the current node
 ///
 /// # Arguments
@@ -26,11 +20,24 @@ pub async fn node_info(state: tauri::State<'_, AppState>) -> Result<String, Stri
     core.node_info().await.map_err(|error| error.to_string())
 }
 
-
-
-
-
-/// Share files with parallel progress tracking
+/// Share files with parallel progress tracking and real-time updates
+///
+/// Validates file paths, uploads files concurrently, and streams progress events
+/// to the frontend via the provided channel.
+///
+/// # Arguments
+///
+/// * `channel` - Channel for sending progress events to the frontend
+/// * `state` - The Tauri application state containing the initialized core
+/// * `paths` - Vector of file or directory path strings to share
+///
+/// # Returns
+///
+/// A shareable ticket string that recipients can use to download the files
+///
+/// # Errors
+///
+/// Returns an error if core is not initialized, paths are invalid, or upload fails
 #[tauri::command]
 pub async fn share_files_parallel(
     channel: Channel<ProgressEvent>,
@@ -45,7 +52,25 @@ pub async fn share_files_parallel(
         .map_err(|error| error.to_string())
 }
 
-/// Download files with parallel progress tracking
+/// Download files with parallel progress tracking and real-time updates
+///
+/// Parses the ticket, establishes a connection with the peer, downloads all files
+/// concurrently, and streams progress events to the frontend.
+///
+/// # Arguments
+///
+/// * `channel` - Channel for sending progress events to the frontend
+/// * `state` - The Tauri application state containing the initialized core
+/// * `ticket` - The ticket string received from the sender
+///
+/// # Returns
+///
+/// Download result containing metadata and the path where files were saved
+///
+/// # Errors
+///
+/// Returns an error if core is not initialized, ticket is invalid, connection fails,
+/// or download operation fails
 #[tauri::command]
 pub async fn download_files_parallel(
     channel: Channel<ProgressEvent>,

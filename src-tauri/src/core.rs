@@ -74,19 +74,53 @@ pub struct ShareBundle {
     pub metadata_hash: String,
 }
 
+/// Task definition for uploading a single file.
+#[derive(Debug, Clone)]
+struct UploadFileTask {
+    absolute_path: PathBuf,
+    share_root: PathBuf,
+    file_id: String,
+}
+
+/// Task definition for downloading a single file.
+#[derive(Debug, Clone)]
+struct DownloadFileTask {
+    file_info: FileInfo,
+    file_id: String,
+}
+
 /// Core functionality for peer-to-peer file sharing using Iroh.
 ///
 /// This struct encapsulates all the networking and storage components needed
 /// for sharing and downloading files in a decentralized manner. It handles
 /// the entire lifecycle from file ingestion to ticket generation for sharing,
 /// and from ticket parsing to file reconstruction for downloading.
+///
+/// # Progress Tracking Architecture
+///
+/// File transfers use a two-component system for progress tracking:
+///
+/// 1. **ProgressTracker**: Thread-safe in-memory state (`Arc<RwLock<TransferProgress>>`)
+///    - Aggregates progress from multiple parallel file operations
+///    - Calculates overall statistics (totals, rates, ETAs)
+///    - Multiple concurrent tasks can safely update it
+///    - Think of it as a "database" of current transfer state
+///
+/// 2. **Progress Channel**: One-way Tauri IPC communication to frontend
+///    - Sends progress event snapshots to the UI
+///    - Fire-and-forget (doesn't store state)
+///    - Think of it as a "notification bus"
+///
+/// The pattern: Parallel tasks update the tracker → periodically take a snapshot →
+/// send snapshot through channel to UI. This allows aggregating progress from many
+/// concurrent file operations into coherent overall transfer statistics.
 pub struct GinsengCore {
     /// Iroh endpoint for P2P networking
     pub endpoint: Endpoint,
     /// In-memory blob store for content-addressed storage
     pub store: MemStore,
     /// Protocol handler for blob operations (upload/download)
-    pub blobs: BlobsProtocol,
+    pub blob_protocol: BlobsProtocol,
     /// Router for handling incoming connections and protocol routing
     pub router: Router,
 }
@@ -103,13 +137,13 @@ impl GinsengCore {
     pub async fn new() -> Result<Self> {
         let endpoint = create_endpoint().await?;
         let store = MemStore::new();
-        let blobs = BlobsProtocol::new(&store, None);
-        let router = create_router(&endpoint, &blobs);
+        let blob_protocol = BlobsProtocol::new(&store, None);
+        let router = create_router(&endpoint, &blob_protocol);
 
         Ok(Self {
             endpoint,
             store,
-            blobs,
+            blob_protocol,
             router,
         })
     }
@@ -146,111 +180,49 @@ impl GinsengCore {
     ) -> Result<String> {
         validate_paths_not_empty(&paths)?;
 
-        let tracker = ProgressTracker::new(uuid::Uuid::new_v4().to_string(), TransferType::Upload);
-        let rate_limiter = RateLimiter::new(Duration::from_millis(100));
+        let progress_tracker = ProgressTracker::new(uuid::Uuid::new_v4().to_string(), TransferType::Upload);
+        let progress_rate_limiter = RateLimiter::new(Duration::from_millis(16));
 
         channel
             .send(ProgressEvent::TransferStarted {
-                transfer: tracker.get_snapshot().await,
+                transfer: progress_tracker.get_snapshot().await,
             })
             .ok();
 
-        tracker.set_stage(TransferStage::Initializing).await;
+        progress_tracker.set_stage(TransferStage::Initializing).await;
 
-        let file_paths = collect_file_paths(&paths).await?;
-
-        for (file_path, base_path) in &file_paths {
-            let name = extract_file_name(file_path);
-            let relative_path = calculate_relative_path(file_path, base_path)?;
-            let size = get_file_size(file_path).await?;
-            tracker
-                .add_file(FileProgress::new(name, relative_path, size))
-                .await;
-        }
+        let upload_tasks = initialize_upload_tasks(&paths, &progress_tracker).await?;
 
         channel
             .send(ProgressEvent::TransferProgress {
-                transfer: tracker.get_snapshot().await,
+                transfer: progress_tracker.get_snapshot().await,
             })
             .ok();
 
-        tracker.set_stage(TransferStage::Transferring).await;
+        progress_tracker.set_stage(TransferStage::Transferring).await;
 
-        // Process files in parallel with streaming progress
-        let upload_concurrency = std::cmp::min(8, num_cpus::get());
-        let (file_info_tx, mut file_info_rx) = tokio::sync::mpsc::unbounded_channel::<FileInfo>();
-        let channel = Arc::new(channel);
+        let file_infos = upload_files_concurrently(
+            upload_tasks,
+            &self.blob_protocol,
+            &progress_tracker,
+            &Arc::new(channel.clone()),
+            &progress_rate_limiter,
+        )
+        .await;
 
-        // Create file entries with IDs
-        let snapshot = tracker.get_snapshot().await;
-        let file_entries: Vec<_> = file_paths
-            .iter()
-            .enumerate()
-            .map(|(idx, (path, base))| {
-                (
-                    path.clone(),
-                    base.clone(),
-                    snapshot.files[idx].file_id.clone(),
-                )
-            })
-            .collect();
+        let ticket = finalize_share_bundle(
+            file_infos,
+            &paths,
+            &self.blob_protocol,
+            &self.endpoint,
+            &progress_tracker,
+        )
+        .await?;
 
-        // Process files concurrently
-        let blobs = self.blobs.clone();
-        let tracker_clone = tracker.clone();
-        let limiter_clone = rate_limiter.clone();
-        let channel_clone = channel.clone();
-        let tx_clone = file_info_tx.clone();
-
-        stream::iter(file_entries)
-            .for_each_concurrent(upload_concurrency, move |(path, base, file_id)| {
-                let blobs = blobs.clone();
-                let tracker = tracker_clone.clone();
-                let channel = channel_clone.clone();
-                let limiter = limiter_clone.clone();
-                let tx = tx_clone.clone();
-
-                async move {
-                    if let Err(e) =
-                        upload_one_file(path, base, file_id, blobs, tracker, channel, limiter, tx)
-                            .await
-                    {
-                        eprintln!("Upload failed: {}", e);
-                    }
-                }
-            })
-            .await;
-
-        // Close sender and collect results
-        drop(file_info_tx);
-        let mut file_infos = Vec::new();
-        while let Some(info) = file_info_rx.recv().await {
-            file_infos.push(info);
-        }
-
-        let total_size = calculate_total_size(file_infos.iter().map(|f| f.size));
-        let share_type = determine_share_type(&paths, &file_infos);
-
-        let metadata = ShareMetadata {
-            files: file_infos,
-            share_type,
-            total_size,
-        };
-
-        tracker.set_stage(TransferStage::Finalizing).await;
-
-        let metadata_hash = store_metadata_as_blob(&self.blobs, &metadata).await?;
-        let bundle = ShareBundle {
-            metadata,
-            metadata_hash,
-        };
-        let (bundle_hash, bundle_format) = store_bundle_as_blob(&self.blobs, &bundle).await?;
-        let ticket = create_share_ticket(&self.endpoint, &bundle_hash, &bundle_format)?;
-
-        tracker.complete().await;
+        progress_tracker.complete().await;
         channel
             .send(ProgressEvent::TransferCompleted {
-                transfer: tracker.get_snapshot().await,
+                transfer: progress_tracker.get_snapshot().await,
             })
             .ok();
 
@@ -279,27 +251,26 @@ impl GinsengCore {
         channel: Channel<ProgressEvent>,
         ticket_str: String,
     ) -> Result<(ShareMetadata, PathBuf)> {
-        let tracker =
+        let progress_tracker =
             ProgressTracker::new(uuid::Uuid::new_v4().to_string(), TransferType::Download);
-        let rate_limiter = RateLimiter::new(Duration::from_millis(100));
+        let progress_rate_limiter = RateLimiter::new(Duration::from_millis(100));
 
         channel
             .send(ProgressEvent::TransferStarted {
-                transfer: tracker.get_snapshot().await,
+                transfer: progress_tracker.get_snapshot().await,
             })
             .ok();
 
-        tracker.set_stage(TransferStage::Connecting).await;
+        progress_tracker.set_stage(TransferStage::Connecting).await;
 
         let ticket = parse_ticket(&ticket_str)?;
         let bundle =
-            download_and_parse_bundle(&self.endpoint, &self.blobs, &self.store, &ticket).await?;
+            download_and_parse_bundle(&self.endpoint, &self.blob_protocol, &self.store, &ticket).await?;
 
         let target_directory = determine_target_directory(&bundle.metadata)?;
 
-        // Initialize file progress
         for file_info in &bundle.metadata.files {
-            tracker
+            progress_tracker
                 .add_file(FileProgress::new(
                     file_info.name.clone(),
                     file_info.relative_path.clone(),
@@ -308,79 +279,112 @@ impl GinsengCore {
                 .await;
         }
 
-        tracker.set_stage(TransferStage::Transferring).await;
+        progress_tracker.set_stage(TransferStage::Transferring).await;
         channel
             .send(ProgressEvent::TransferProgress {
-                transfer: tracker.get_snapshot().await,
+                transfer: progress_tracker.get_snapshot().await,
             })
             .ok();
 
-        // Download files in parallel with streaming progress
         let download_concurrency = 6;
-        let channel = Arc::new(channel);
+        let progress_channel = Arc::new(channel);
 
-        // Create file entries with IDs
-        let snapshot = tracker.get_snapshot().await;
-        let file_entries: Vec<_> = bundle
+        let snapshot = progress_tracker.get_snapshot().await;
+        let download_tasks: Vec<DownloadFileTask> = bundle
             .metadata
             .files
             .iter()
             .enumerate()
-            .map(|(idx, file)| (file.clone(), snapshot.files[idx].file_id.clone()))
+            .map(|(file_index, file_info)| DownloadFileTask {
+                file_info: file_info.clone(),
+                file_id: snapshot.files[file_index].file_id.clone(),
+            })
             .collect();
 
-        // Process downloads concurrently
-        let endpoint = self.endpoint.clone();
-        let blobs = self.blobs.clone();
-        let tracker_clone = tracker.clone();
-        let limiter_clone = rate_limiter.clone();
-        let channel_clone = channel.clone();
+        let endpoint_clone = self.endpoint.clone();
+        let blob_protocol_clone = self.blob_protocol.clone();
+        let progress_tracker_clone = progress_tracker.clone();
+        let progress_rate_limiter_clone = progress_rate_limiter.clone();
+        let progress_channel_clone = progress_channel.clone();
         let peer_id = ticket.addr().id;
-        let target_dir = target_directory.clone();
+        let target_directory_clone = target_directory.clone();
 
-        stream::iter(file_entries)
-            .for_each_concurrent(download_concurrency, move |(file_info, file_id)| {
-                let endpoint = endpoint.clone();
-                let blobs = blobs.clone();
-                let tracker = tracker_clone.clone();
-                let channel = channel_clone.clone();
-                let limiter = limiter_clone.clone();
-                let target_dir = target_dir.clone();
+        stream::iter(download_tasks)
+            .for_each_concurrent(download_concurrency, move |download_task| {
+                let endpoint = endpoint_clone.clone();
+                let blob_protocol = blob_protocol_clone.clone();
+                let progress_tracker = progress_tracker_clone.clone();
+                let progress_channel = progress_channel_clone.clone();
+                let progress_rate_limiter = progress_rate_limiter_clone.clone();
+                let target_directory = target_directory_clone.clone();
 
                 async move {
-                    if let Err(e) = download_one_file(
-                        file_info, file_id, endpoint, blobs, peer_id, target_dir, tracker, channel,
-                        limiter,
+                    if let Err(error) = download_one_file(
+                        download_task.file_info,
+                        download_task.file_id,
+                        endpoint,
+                        blob_protocol,
+                        peer_id,
+                        target_directory,
+                        progress_tracker,
+                        progress_channel,
+                        progress_rate_limiter,
                     )
                     .await
                     {
-                        eprintln!("Download failed: {}", e);
+                        eprintln!("Download failed: {}", error);
                     }
                 }
             })
             .await;
 
-        tracker.complete().await;
-        channel
+        progress_tracker.complete().await;
+        progress_channel
             .send(ProgressEvent::TransferCompleted {
-                transfer: tracker.get_snapshot().await,
+                transfer: progress_tracker.get_snapshot().await,
             })
             .ok();
 
         Ok((bundle.metadata, target_directory))
     }
 
-    /// CLI version - share files using parallelized implementation
+    /// CLI version of share_files_parallel without progress updates
+    ///
+    /// Uses a no-op channel for CLI environments where progress events are not needed.
+    ///
+    /// # Arguments
+    ///
+    /// * `paths` - Vector of file or directory paths to share
+    ///
+    /// # Returns
+    ///
+    /// A shareable ticket string
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if sharing fails
     pub async fn share_files_cli(&self, paths: Vec<PathBuf>) -> Result<String> {
-        // Create a dummy channel that ignores progress events
         let channel = Channel::new(|_event: InvokeResponseBody| Ok(()));
 
         self.share_files_parallel(channel, paths).await
     }
 
-    /// CLI version - download files using parallelized implementation
+    /// CLI version of download_files_parallel without progress updates
+    ///
+    /// Uses a no-op channel for CLI environments where progress events are not needed.
+    ///
+    /// # Arguments
+    ///
+    /// * `ticket_str` - The ticket string received from the sender
+    ///
+    /// # Returns
+    ///
+    /// Tuple containing the share metadata and download path
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if download fails
     pub async fn download_files_cli(&self, ticket_str: String) -> Result<(ShareMetadata, PathBuf)> {
-        // Create a dummy channel that ignores progress events
         let channel = Channel::new(|_event: InvokeResponseBody| Ok(()));
 
         self.download_files_parallel(channel, ticket_str).await
@@ -401,10 +405,14 @@ impl GinsengCore {
     }
 }
 
-/// Creates and configures an Iroh endpoint for P2P networking.
+/// Creates and configures an Iroh endpoint for P2P networking
 ///
 /// Sets up the endpoint with blob protocol support, default relay mode,
-/// and n0 discovery for finding peers on the network.
+/// and peer discovery for finding nodes on the network.
+///
+/// # Errors
+///
+/// Returns an error if the endpoint cannot be created or bound to a port
 async fn create_endpoint() -> Result<Endpoint> {
     Endpoint::builder()
         .alpns(vec![iroh_blobs::protocol::ALPN.to_vec()])
@@ -414,17 +422,38 @@ async fn create_endpoint() -> Result<Endpoint> {
         .map_err(|error| anyhow::anyhow!("Failed to create endpoint: {}", error))
 }
 
-/// Creates a protocol router that handles incoming blob protocol connections.
+/// Creates a protocol router that handles incoming blob protocol connections
 ///
-/// The router accepts connections using the blob protocol ALPN and routes
-/// them to the appropriate blob protocol handler.
-fn create_router(endpoint: &Endpoint, blobs: &BlobsProtocol) -> Router {
+/// Configures the router to accept connections using the blob protocol ALPN
+/// and routes them to the appropriate blob protocol handler.
+///
+/// # Arguments
+///
+/// * `endpoint` - The Iroh endpoint to attach the router to
+/// * `blob_protocol` - The blob protocol handler for processing connections
+///
+/// # Returns
+///
+/// Configured and spawned router ready to handle incoming connections
+fn create_router(endpoint: &Endpoint, blob_protocol: &BlobsProtocol) -> Router {
     iroh::protocol::Router::builder(endpoint.clone())
-        .accept(iroh_blobs::protocol::ALPN, blobs.clone())
+        .accept(iroh_blobs::protocol::ALPN, blob_protocol.clone())
         .spawn()
 }
 
-/// Gets the size of a file in bytes.
+/// Gets the size of a file in bytes
+///
+/// # Arguments
+///
+/// * `file_path` - Path to the file to measure
+///
+/// # Returns
+///
+/// File size in bytes
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be accessed or metadata cannot be read
 async fn get_file_size(file_path: &Path) -> Result<u64> {
     fs::metadata(file_path)
         .await
@@ -438,50 +467,206 @@ async fn get_file_size(file_path: &Path) -> Result<u64> {
         })
 }
 
+/// Initializes upload tasks and file progress tracking
+///
+/// Collects all files from the provided paths, creates FileProgress entries
+/// in the tracker, and returns a list of UploadFileTask structs ready for
+/// concurrent processing.
+///
+/// # Arguments
+///
+/// * `paths` - Slice of file or directory paths to process
+/// * `progress_tracker` - Shared progress tracker for file operations
+///
+/// # Returns
+///
+/// Vector of upload tasks ready for parallel execution
+///
+/// # Errors
+///
+/// Returns an error if file metadata cannot be read or paths are invalid
+async fn initialize_upload_tasks(
+    paths: &[PathBuf],
+    progress_tracker: &ProgressTracker,
+) -> Result<Vec<UploadFileTask>> {
+    let file_paths = collect_file_paths(paths).await?;
+
+    for (absolute_path, share_root) in &file_paths {
+        let name = extract_file_name(absolute_path);
+        let relative_path = calculate_relative_path(absolute_path, share_root)?;
+        let size = get_file_size(absolute_path).await?;
+        progress_tracker
+            .add_file(FileProgress::new(name, relative_path, size))
+            .await;
+    }
+
+    let snapshot = progress_tracker.get_snapshot().await;
+    let upload_tasks: Vec<UploadFileTask> = file_paths
+        .iter()
+        .enumerate()
+        .map(|(file_index, (absolute_path, share_root))| UploadFileTask {
+            absolute_path: absolute_path.clone(),
+            share_root: share_root.clone(),
+            file_id: snapshot.files[file_index].file_id.clone(),
+        })
+        .collect();
+
+    Ok(upload_tasks)
+}
+
+/// Uploads files concurrently using buffer_unordered
+///
+/// Processes upload tasks in parallel and collects the resulting FileInfo
+/// structs. Uses buffer_unordered to limit concurrency while maintaining
+/// high throughput. Failed uploads are logged and filtered out.
+///
+/// # Arguments
+///
+/// * `upload_tasks` - Vector of upload tasks to process
+/// * `blob_protocol` - Protocol handler for blob storage operations
+/// * `progress_tracker` - Shared progress tracker for updating file states
+/// * `progress_channel` - Channel for sending progress events to frontend
+/// * `progress_rate_limiter` - Rate limiter to prevent excessive progress updates
+///
+/// # Returns
+///
+/// Vector of successfully uploaded FileInfo structs
+async fn upload_files_concurrently(
+    upload_tasks: Vec<UploadFileTask>,
+    blob_protocol: &BlobsProtocol,
+    progress_tracker: &ProgressTracker,
+    progress_channel: &Arc<Channel<ProgressEvent>>,
+    progress_rate_limiter: &RateLimiter,
+) -> Vec<FileInfo> {
+    let upload_concurrency = std::cmp::min(8, num_cpus::get());
+
+    stream::iter(upload_tasks)
+        .map(|upload_task| {
+            upload_one_file(
+                upload_task.absolute_path,
+                upload_task.share_root,
+                upload_task.file_id,
+                blob_protocol.clone(),
+                progress_tracker.clone(),
+                progress_channel.clone(),
+                progress_rate_limiter.clone(),
+            )
+        })
+        .buffer_unordered(upload_concurrency)
+        .filter_map(|result| async move { result.ok() })
+        .collect()
+        .await
+}
+
+/// Finalizes the share bundle by creating metadata and generating a ticket
+///
+/// Takes the uploaded FileInfo structs, creates ShareMetadata, stores it
+/// as a blob, and generates a shareable ticket string.
+///
+/// # Arguments
+///
+/// * `file_infos` - Vector of file information from successful uploads
+/// * `paths` - Original paths that were shared
+/// * `blob_protocol` - Protocol handler for storing metadata
+/// * `endpoint` - Endpoint for generating the ticket address
+/// * `progress_tracker` - Progress tracker to update with finalizing stage
+///
+/// # Returns
+///
+/// Shareable ticket string for downloading the files
+///
+/// # Errors
+///
+/// Returns an error if metadata storage or ticket generation fails
+async fn finalize_share_bundle(
+    file_infos: Vec<FileInfo>,
+    paths: &[PathBuf],
+    blob_protocol: &BlobsProtocol,
+    endpoint: &Endpoint,
+    progress_tracker: &ProgressTracker,
+) -> Result<String> {
+    let total_size = calculate_total_size(file_infos.iter().map(|file_info| file_info.size));
+    let share_type = determine_share_type(paths, &file_infos);
+
+    let metadata = ShareMetadata {
+        files: file_infos,
+        share_type,
+        total_size,
+    };
+
+    progress_tracker.set_stage(TransferStage::Finalizing).await;
+
+    let metadata_hash = store_metadata_as_blob(blob_protocol, &metadata).await?;
+    let bundle = ShareBundle {
+        metadata,
+        metadata_hash,
+    };
+    let (bundle_hash, bundle_format) = store_bundle_as_blob(blob_protocol, &bundle).await?;
+    let ticket = create_share_ticket(endpoint, &bundle_hash, &bundle_format)?;
+
+    Ok(ticket)
+}
+
 /// Downloads a single file with streaming progress updates
 ///
-/// Processes download progress events and updates the tracker in real-time
+/// Establishes a download stream, processes progress events, exports the file
+/// to the target directory, and updates the progress tracker in real-time.
+///
+/// # Arguments
+///
+/// * `file_info` - Metadata about the file to download
+/// * `file_id` - Unique identifier for this file in the progress tracker
+/// * `endpoint` - Endpoint for connecting to the peer
+/// * `blob_protocol` - Protocol handler for blob operations
+/// * `peer_id` - ID of the peer to download from
+/// * `target_directory` - Directory where the file will be saved
+/// * `progress_tracker` - Shared progress tracker for updating transfer state
+/// * `progress_channel` - Channel for sending progress events to frontend
+/// * `progress_rate_limiter` - Rate limiter to prevent excessive progress updates
+///
+/// # Errors
+///
+/// Returns an error if the hash is invalid, download fails, or file export fails
 async fn download_one_file(
     file_info: FileInfo,
     file_id: String,
     endpoint: Endpoint,
-    blobs: BlobsProtocol,
+    blob_protocol: BlobsProtocol,
     peer_id: iroh::EndpointId,
-    target_dir: PathBuf,
-    tracker: ProgressTracker,
-    channel: Arc<Channel<ProgressEvent>>,
-    limiter: RateLimiter,
+    target_directory: PathBuf,
+    progress_tracker: ProgressTracker,
+    progress_channel: Arc<Channel<ProgressEvent>>,
+    progress_rate_limiter: RateLimiter,
 ) -> Result<()> {
     use iroh_blobs::api::downloader::DownloadProgressItem as DP;
 
-    tracker
-        .update_file(&file_id, |f| {
-            f.status = FileStatus::Transferring;
+    progress_tracker
+        .update_file(&file_id, |file_progress| {
+            file_progress.status = FileStatus::Transferring;
         })
         .await;
 
     let file_hash: Hash = file_info
         .hash
         .parse()
-        .map_err(|e| anyhow::anyhow!("Invalid hash: {}", e))?;
+        .map_err(|error| anyhow::anyhow!("Invalid hash: {}", error))?;
 
-    // Start streaming download
-    let downloader = blobs.store().downloader(&endpoint);
+    let downloader = blob_protocol.store().downloader(&endpoint);
     let download = downloader.download(file_hash, Some(peer_id));
     let mut stream = download.stream().await?;
 
-    while let Some(evt) = stream.next().await {
-        match evt {
+    while let Some(event) = stream.next().await {
+        match event {
             DP::Progress(total_bytes) => {
                 let transferred = total_bytes.min(file_info.size);
-                tracker
-                    .update_file(&file_id, |f| {
-                        f.transferred_bytes = transferred;
+                progress_tracker
+                    .update_file(&file_id, |file_progress| {
+                        file_progress.transferred_bytes = transferred;
                     })
                     .await;
             }
-            DP::Error(e) => {
-                return Err(anyhow::anyhow!("Download error: {}", e));
+            DP::Error(error) => {
+                return Err(anyhow::anyhow!("Download error: {}", error));
             }
             DP::DownloadError => {
                 return Err(anyhow::anyhow!(
@@ -489,41 +674,36 @@ async fn download_one_file(
                     file_info.name
                 ));
             }
-            _ => {
-                // Handle other events like TryProvider, ProviderFailed, PartComplete
-            }
+            _ => {}
         }
 
-        // Rate-limited progress updates
-        if limiter.should_emit().await {
-            channel
+        if progress_rate_limiter.should_emit().await {
+            progress_channel
                 .send(ProgressEvent::TransferProgress {
-                    transfer: tracker.get_snapshot().await,
+                    transfer: progress_tracker.get_snapshot().await,
                 })
                 .ok();
         }
     }
 
-    // Stream complete - export to filesystem
-    let target_path = target_dir.join(&file_info.relative_path);
+    let target_path = target_directory.join(&file_info.relative_path);
     ensure_parent_directory_exists(&target_path).await?;
-    blobs
+    blob_protocol
         .export(file_hash, &target_path)
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to export file '{}': {}", file_info.name, e))?;
+        .map_err(|error| anyhow::anyhow!("Failed to export file '{}': {}", file_info.name, error))?;
 
-    tracker
-        .update_file(&file_id, |f| {
-            f.transferred_bytes = f.total_bytes;
-            f.status = FileStatus::Completed;
+    progress_tracker
+        .update_file(&file_id, |file_progress| {
+            file_progress.transferred_bytes = file_progress.total_bytes;
+            file_progress.status = FileStatus::Completed;
         })
         .await;
 
-    // Force emit on completion
-    limiter.force_emit().await;
-    channel
+    progress_rate_limiter.force_emit().await;
+    progress_channel
         .send(ProgressEvent::TransferProgress {
-            transfer: tracker.get_snapshot().await,
+            transfer: progress_tracker.get_snapshot().await,
         })
         .ok();
 
@@ -532,119 +712,147 @@ async fn download_one_file(
 
 /// Uploads a single file with streaming progress updates
 ///
-/// Processes add_path progress events and updates the tracker in real-time
+/// Adds the file to blob storage, processes progress events, and updates the
+/// tracker in real-time. Returns the FileInfo on success.
+///
+/// # Arguments
+///
+/// * `absolute_path` - Full path to the file to upload
+/// * `share_root` - Root directory for calculating relative paths
+/// * `file_id` - Unique identifier for this file in the progress tracker
+/// * `blob_protocol` - Protocol handler for blob storage operations
+/// * `progress_tracker` - Shared progress tracker for updating transfer state
+/// * `progress_channel` - Channel for sending progress events to frontend
+/// * `progress_rate_limiter` - Rate limiter to prevent excessive progress updates
+///
+/// # Returns
+///
+/// FileInfo containing metadata about the uploaded file
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be read or upload fails
 async fn upload_one_file(
-    path: PathBuf,
-    base: PathBuf,
+    absolute_path: PathBuf,
+    share_root: PathBuf,
     file_id: String,
-    blobs: BlobsProtocol,
-    tracker: ProgressTracker,
-    channel: Arc<Channel<ProgressEvent>>,
-    limiter: RateLimiter,
-    fileinfo_tx: tokio::sync::mpsc::UnboundedSender<FileInfo>,
-) -> Result<()> {
+    blob_protocol: BlobsProtocol,
+    progress_tracker: ProgressTracker,
+    progress_channel: Arc<Channel<ProgressEvent>>,
+    progress_rate_limiter: RateLimiter,
+) -> Result<FileInfo> {
     use iroh_blobs::api::blobs::AddProgressItem;
 
-    tracker
-        .update_file(&file_id, |f| {
-            f.status = FileStatus::Transferring;
+    progress_tracker
+        .update_file(&file_id, |file_progress| {
+            file_progress.status = FileStatus::Transferring;
         })
         .await;
 
-    let name = extract_file_name(&path);
-    let relative_path = calculate_relative_path(&path, &base)?;
+    let name = extract_file_name(&absolute_path);
+    let relative_path = calculate_relative_path(&absolute_path, &share_root)?;
 
-    // Start streaming add
-    let add_progress = blobs.store().add_path(path.clone());
+    let add_progress = blob_protocol.store().add_path(absolute_path.clone());
     let mut stream = add_progress.stream().await;
 
     let mut copy_bytes = 0u64;
     let mut outboard_bytes = 0u64;
-    let mut total = None;
+    let mut total_bytes = None;
+    let mut result_file_info: Option<FileInfo> = None;
 
-    while let Some(evt) = stream.next().await {
-        match evt {
-            AddProgressItem::Size(sz) => {
-                total = Some(sz);
-                tracker
-                    .update_file(&file_id, |f| {
-                        if f.total_bytes == 0 {
-                            f.total_bytes = sz;
+    while let Some(event) = stream.next().await {
+        match event {
+            AddProgressItem::Size(size) => {
+                total_bytes = Some(size);
+                progress_tracker
+                    .update_file(&file_id, |file_progress| {
+                        if file_progress.total_bytes == 0 {
+                            file_progress.total_bytes = size;
                         }
                     })
                     .await;
             }
-            AddProgressItem::CopyProgress(off) => {
-                copy_bytes = off;
-                if let Some(t) = total {
-                    let transferred = copy_bytes.max(outboard_bytes).min(t);
-                    tracker
-                        .update_file(&file_id, |f| {
-                            f.transferred_bytes = transferred;
+            AddProgressItem::CopyProgress(offset) => {
+                copy_bytes = offset;
+                if let Some(total) = total_bytes {
+                    let transferred = copy_bytes.max(outboard_bytes).min(total);
+                    progress_tracker
+                        .update_file(&file_id, |file_progress| {
+                            file_progress.transferred_bytes = transferred;
                         })
                         .await;
                 }
             }
-            AddProgressItem::OutboardProgress(off) => {
-                outboard_bytes = off;
-                if let Some(t) = total {
-                    let transferred = copy_bytes.max(outboard_bytes).min(t);
-                    tracker
-                        .update_file(&file_id, |f| {
-                            f.transferred_bytes = transferred;
+            AddProgressItem::OutboardProgress(offset) => {
+                outboard_bytes = offset;
+                if let Some(total) = total_bytes {
+                    let transferred = copy_bytes.max(outboard_bytes).min(total);
+                    progress_tracker
+                        .update_file(&file_id, |file_progress| {
+                            file_progress.transferred_bytes = transferred;
                         })
                         .await;
                 }
             }
-            AddProgressItem::CopyDone => {
-                // Optional: could emit status change here
-            }
+            AddProgressItem::CopyDone => {}
             AddProgressItem::Done(tag) => {
                 let hash = tag.hash().to_string();
-                let size = total.unwrap_or(0);
+                let size = total_bytes.unwrap_or(0);
 
-                tracker
-                    .update_file(&file_id, |f| {
-                        f.transferred_bytes = f.total_bytes;
-                        f.status = FileStatus::Completed;
+                progress_tracker
+                    .update_file(&file_id, |file_progress| {
+                        file_progress.transferred_bytes = file_progress.total_bytes;
+                        file_progress.status = FileStatus::Completed;
                     })
                     .await;
 
-                // Force emit on completion
-                limiter.force_emit().await;
-                channel
+                progress_rate_limiter.force_emit().await;
+                progress_channel
                     .send(ProgressEvent::TransferProgress {
-                        transfer: tracker.get_snapshot().await,
+                        transfer: progress_tracker.get_snapshot().await,
                     })
                     .ok();
 
-                let info = FileInfo {
+                result_file_info = Some(FileInfo {
                     name: name.clone(),
                     relative_path: relative_path.clone(),
                     size,
                     hash,
-                };
-                fileinfo_tx.send(info).ok();
+                });
             }
-            AddProgressItem::Error(e) => {
-                return Err(anyhow::anyhow!("Add progress error: {}", e));
+            AddProgressItem::Error(error) => {
+                return Err(anyhow::anyhow!("Add progress error: {}", error));
             }
         }
 
-        // Rate-limited progress updates
-        if limiter.should_emit().await {
-            channel
+        if progress_rate_limiter.should_emit().await {
+            progress_channel
                 .send(ProgressEvent::TransferProgress {
-                    transfer: tracker.get_snapshot().await,
+                    transfer: progress_tracker.get_snapshot().await,
                 })
                 .ok();
         }
     }
 
-    Ok(())
+    result_file_info.ok_or_else(|| anyhow::anyhow!("Upload did not complete successfully"))
 }
 
 /// Collects all file paths from the given paths (files and directories)
+///
+/// Recursively walks directories to find all files, pairs each file with its
+/// share root for relative path calculation.
+///
+/// # Arguments
+///
+/// * `paths` - Slice of file or directory paths to collect from
+///
+/// # Returns
+///
+/// Vector of tuples containing (file_path, share_root) pairs
+///
+/// # Errors
+///
+/// Returns an error if paths cannot be canonicalized
 async fn collect_file_paths(paths: &[PathBuf]) -> Result<Vec<(PathBuf, PathBuf)>> {
     let mut file_paths = Vec::new();
 
@@ -666,6 +874,18 @@ async fn collect_file_paths(paths: &[PathBuf]) -> Result<Vec<(PathBuf, PathBuf)>
 }
 
 /// Determines share type from paths and file infos
+///
+/// Analyzes the input paths to determine if this is a single file, multiple files,
+/// or a directory share.
+///
+/// # Arguments
+///
+/// * `paths` - Original paths that were shared
+/// * `file_infos` - Collected file information
+///
+/// # Returns
+///
+/// ShareType indicating the nature of the share
 fn determine_share_type(paths: &[PathBuf], file_infos: &[FileInfo]) -> ShareType {
     if paths.len() == 1 {
         let path = &paths[0];
@@ -683,40 +903,88 @@ fn determine_share_type(paths: &[PathBuf], file_infos: &[FileInfo]) -> ShareType
     }
 }
 
-/// Serializes share metadata to JSON and stores it as a blob.
-async fn store_metadata_as_blob(blobs: &BlobsProtocol, metadata: &ShareMetadata) -> Result<String> {
+/// Serializes share metadata to JSON and stores it as a blob
+///
+/// # Arguments
+///
+/// * `blob_protocol` - Protocol handler for blob storage operations
+/// * `metadata` - Share metadata to serialize and store
+///
+/// # Returns
+///
+/// Hash of the stored metadata blob
+///
+/// # Errors
+///
+/// Returns an error if serialization or storage fails
+async fn store_metadata_as_blob(blob_protocol: &BlobsProtocol, metadata: &ShareMetadata) -> Result<String> {
     let metadata_json = serde_json::to_string(metadata)?;
-    store_json_as_blob(blobs, &metadata_json).await
+    store_json_as_blob(blob_protocol, &metadata_json).await
 }
 
-/// Serializes a share bundle to JSON and stores it as a blob.
+/// Serializes a share bundle to JSON and stores it as a blob
 ///
-/// Returns both the hash and format information needed to create a ticket.
+/// # Arguments
+///
+/// * `blob_protocol` - Protocol handler for blob storage operations
+/// * `bundle` - Share bundle to serialize and store
+///
+/// # Returns
+///
+/// Tuple containing the blob hash and format information needed for tickets
+///
+/// # Errors
+///
+/// Returns an error if serialization or storage fails
 async fn store_bundle_as_blob(
-    blobs: &BlobsProtocol,
+    blob_protocol: &BlobsProtocol,
     bundle: &ShareBundle,
 ) -> Result<(Hash, iroh_blobs::BlobFormat)> {
     let bundle_json = serde_json::to_string(bundle)?;
-    let add_progress = blobs.store().add_bytes(bundle_json.into_bytes());
+    let add_progress = blob_protocol.store().add_bytes(bundle_json.into_bytes());
     let tag = add_progress
         .await
         .map_err(|error| anyhow::anyhow!("Failed to store bundle as blob: {}", error))?;
     Ok((tag.hash, tag.format))
 }
 
-/// Stores a JSON string as a blob and returns its hash.
-async fn store_json_as_blob(blobs: &BlobsProtocol, json: &str) -> Result<String> {
-    let add_progress = blobs.store().add_bytes(json.as_bytes().to_vec());
+/// Stores a JSON string as a blob and returns its hash
+///
+/// # Arguments
+///
+/// * `blob_protocol` - Protocol handler for blob storage operations
+/// * `json` - JSON string to store as a blob
+///
+/// # Returns
+///
+/// Hash of the stored JSON blob
+///
+/// # Errors
+///
+/// Returns an error if storage fails
+async fn store_json_as_blob(blob_protocol: &BlobsProtocol, json: &str) -> Result<String> {
+    let add_progress = blob_protocol.store().add_bytes(json.as_bytes().to_vec());
     let tag = add_progress
         .await
         .map_err(|error| anyhow::anyhow!("Failed to store JSON as blob: {}", error))?;
     Ok(tag.hash.to_string())
 }
 
-/// Creates a shareable ticket string from a bundle hash and format.
+/// Creates a shareable ticket string from a bundle hash and format
 ///
-/// The ticket contains the node address and blob information needed
-/// for others to download the shared content.
+/// # Arguments
+///
+/// * `endpoint` - Endpoint containing the node address
+/// * `bundle_hash` - Hash of the bundle blob
+/// * `bundle_format` - Format information for the blob
+///
+/// # Returns
+///
+/// Base32-encoded ticket string containing the node address and blob information
+///
+/// # Errors
+///
+/// Returns an error if ticket generation fails
 fn create_share_ticket(
     endpoint: &Endpoint,
     bundle_hash: &Hash,
@@ -727,29 +995,69 @@ fn create_share_ticket(
     Ok(ticket.to_string())
 }
 
-/// Parses a ticket string into a BlobTicket structure.
+/// Parses a ticket string into a BlobTicket structure
+///
+/// # Arguments
+///
+/// * `ticket_str` - Base32-encoded ticket string
+///
+/// # Returns
+///
+/// Parsed BlobTicket containing peer address and blob information
+///
+/// # Errors
+///
+/// Returns an error if the ticket is malformed or invalid
 fn parse_ticket(ticket_str: &str) -> Result<BlobTicket> {
     ticket_str
         .parse::<BlobTicket>()
         .map_err(|error| anyhow::anyhow!("Failed to parse ticket: {}", error))
 }
 
-/// Downloads a bundle from a peer and parses it into a ShareBundle.
+/// Downloads a bundle from a peer and parses it into a ShareBundle
 ///
 /// Establishes a connection to the peer, downloads the bundle blob,
 /// exports it to a temporary file, parses the JSON, and cleans up.
+///
+/// # Arguments
+///
+/// * `endpoint` - Endpoint for connecting to the peer
+/// * `blob_protocol` - Protocol handler for blob operations
+/// * `store` - Blob store for downloading data
+/// * `ticket` - Ticket containing peer address and bundle information
+///
+/// # Returns
+///
+/// Parsed ShareBundle containing metadata and file information
+///
+/// # Errors
+///
+/// Returns an error if connection, download, or parsing fails
 async fn download_and_parse_bundle(
     endpoint: &Endpoint,
-    blobs: &BlobsProtocol,
+    blob_protocol: &BlobsProtocol,
     store: &MemStore,
     ticket: &BlobTicket,
 ) -> Result<ShareBundle> {
     let _connection = establish_connection(endpoint, ticket).await?;
     download_blob(endpoint, store, ticket).await?;
-    parse_bundle_from_blob(blobs, ticket).await
+    parse_bundle_from_blob(blob_protocol, ticket).await
 }
 
-/// Establishes a P2P connection to the node specified in the ticket.
+/// Establishes a P2P connection to the node specified in the ticket
+///
+/// # Arguments
+///
+/// * `endpoint` - Local endpoint to connect from
+/// * `ticket` - Ticket containing the peer's address information
+///
+/// # Returns
+///
+/// Active connection to the peer
+///
+/// # Errors
+///
+/// Returns an error if connection cannot be established
 async fn establish_connection(endpoint: &Endpoint, ticket: &BlobTicket) -> Result<Connection> {
     endpoint
         .connect(ticket.addr().clone(), iroh_blobs::protocol::ALPN)
@@ -757,7 +1065,17 @@ async fn establish_connection(endpoint: &Endpoint, ticket: &BlobTicket) -> Resul
         .map_err(|error| anyhow::anyhow!("Failed to establish connection: {}", error))
 }
 
-/// Downloads a blob from a peer into the local store.
+/// Downloads a blob from a peer into the local store
+///
+/// # Arguments
+///
+/// * `endpoint` - Endpoint for connecting to the peer
+/// * `store` - Blob store for saving downloaded data
+/// * `ticket` - Ticket containing peer address and blob hash
+///
+/// # Errors
+///
+/// Returns an error if the download fails
 async fn download_blob(endpoint: &Endpoint, store: &MemStore, ticket: &BlobTicket) -> Result<()> {
     let downloader = store.downloader(endpoint);
     downloader
@@ -766,10 +1084,23 @@ async fn download_blob(endpoint: &Endpoint, store: &MemStore, ticket: &BlobTicke
         .map_err(|error| anyhow::anyhow!("Failed to download blob: {}", error))
 }
 
-/// Exports a blob to a temporary file, parses it as JSON, and cleans up.
-async fn parse_bundle_from_blob(blobs: &BlobsProtocol, ticket: &BlobTicket) -> Result<ShareBundle> {
+/// Exports a blob to a temporary file, parses it as JSON, and cleans up
+///
+/// # Arguments
+///
+/// * `blob_protocol` - Protocol handler for blob export operations
+/// * `ticket` - Ticket containing the blob hash to export
+///
+/// # Returns
+///
+/// Parsed ShareBundle from the blob contents
+///
+/// # Errors
+///
+/// Returns an error if export, parsing, or cleanup fails
+async fn parse_bundle_from_blob(blob_protocol: &BlobsProtocol, ticket: &BlobTicket) -> Result<ShareBundle> {
     let temp_bundle_path = create_temp_bundle_path(ticket);
-    blobs.export(ticket.hash(), &temp_bundle_path).await?;
+    blob_protocol.export(ticket.hash(), &temp_bundle_path).await?;
 
     let bundle_json = fs::read_to_string(&temp_bundle_path).await?;
     let bundle = serde_json::from_str(&bundle_json)?;
@@ -778,20 +1109,40 @@ async fn parse_bundle_from_blob(blobs: &BlobsProtocol, ticket: &BlobTicket) -> R
     Ok(bundle)
 }
 
-/// Creates a temporary file path for bundle extraction using the ticket hash.
+/// Creates a temporary file path for bundle extraction using the ticket hash
+///
+/// # Arguments
+///
+/// * `ticket` - Ticket containing the hash to use in the filename
+///
+/// # Returns
+///
+/// Path in the system temp directory for bundle extraction
 fn create_temp_bundle_path(ticket: &BlobTicket) -> PathBuf {
     std::env::temp_dir().join(format!("ginseng_bundle_{}", ticket.hash()))
 }
 
-/// Determines where to save downloaded files based on the share type.
+/// Determines where to save downloaded files based on the share type
 ///
 /// - Single file: Downloads directory
 /// - Multiple files: Timestamped subdirectory in Downloads
 /// - Directory: Named subdirectory in Downloads
+///
+/// # Arguments
+///
+/// * `metadata` - Share metadata containing the share type
+///
+/// # Returns
+///
+/// Path to the target directory for saving files
+///
+/// # Errors
+///
+/// Returns an error if the downloads directory cannot be determined
 fn determine_target_directory(metadata: &ShareMetadata) -> Result<PathBuf> {
     let downloads_dir = get_downloads_directory()?;
 
-    let target_dir = match &metadata.share_type {
+    let target_directory = match &metadata.share_type {
         ShareType::SingleFile => downloads_dir,
         ShareType::MultipleFiles => {
             let timestamp = chrono::Utc::now().timestamp();
@@ -800,12 +1151,20 @@ fn determine_target_directory(metadata: &ShareMetadata) -> Result<PathBuf> {
         ShareType::Directory { name } => downloads_dir.join(name),
     };
 
-    Ok(target_dir)
+    Ok(target_directory)
 }
 
-/// Ensures that the parent directory of a file path exists.
+/// Ensures that the parent directory of a file path exists
 ///
 /// Creates all necessary parent directories if they don't exist.
+///
+/// # Arguments
+///
+/// * `file_path` - Path to the file whose parent directories should be created
+///
+/// # Errors
+///
+/// Returns an error if directory creation fails
 async fn ensure_parent_directory_exists(file_path: &Path) -> Result<()> {
     if let Some(parent) = file_path.parent() {
         fs::create_dir_all(parent).await?;
@@ -813,7 +1172,15 @@ async fn ensure_parent_directory_exists(file_path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Formats node information for display, including ID, addresses, and relay.
+/// Formats node information for display, including ID, addresses, and relay
+///
+/// # Arguments
+///
+/// * `endpoint` - Endpoint to extract information from
+///
+/// # Returns
+///
+/// Formatted string containing node ID, direct addresses, and relay URL
 fn format_node_info(endpoint: &Endpoint) -> Result<String> {
     let endpoint_id = endpoint.id();
     let endpoint_addr = endpoint.addr();
