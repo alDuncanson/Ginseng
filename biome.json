@@ -13,6 +13,9 @@
 			},
 			"suspicious": {
 				"noExplicitAny": "warn"
+			},
+			"a11y": {
+				"noStaticElementInteractions": "off"
 			}
 		}
 	},
