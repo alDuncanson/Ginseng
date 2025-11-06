@@ -25,10 +25,10 @@ export function DropZone({ onPathsSelected, disabled = false }: DropZoneProps) {
 				} else if (event.payload.type === "leave") {
 					setIsDragging(false);
 				} else if (event.payload.type === "drop") {
-				setIsDragging(false);
-				if (!disabled && event.payload.paths.length > 0) {
-				onPathsSelected(event.payload.paths);
-				}
+					setIsDragging(false);
+					if (!disabled && event.payload.paths.length > 0) {
+						onPathsSelected(event.payload.paths);
+					}
 				}
 			});
 
