@@ -9,7 +9,7 @@ use crate::utils::{
 use anyhow::Result;
 use futures::stream::{self, StreamExt};
 use iroh::{endpoint::Connection, protocol::Router, Endpoint, RelayMode};
-use iroh_blobs::{store::mem::MemStore, ticket::BlobTicket, BlobsProtocol, Hash};
+use iroh_blobs::{store::fs::FsStore, ticket::BlobTicket, BlobsProtocol, Hash};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -117,8 +117,8 @@ struct DownloadFileTask {
 pub struct GinsengCore {
     /// Iroh endpoint for P2P networking
     pub endpoint: Endpoint,
-    /// In-memory blob store for content-addressed storage
-    pub store: MemStore,
+    /// File-based blob store for content-addressed storage
+    pub store: FsStore,
     /// Protocol handler for blob operations (upload/download)
     pub blob_protocol: BlobsProtocol,
     /// Router for handling incoming connections and protocol routing
@@ -128,7 +128,7 @@ pub struct GinsengCore {
 impl GinsengCore {
     /// Creates a new GinsengCore instance with default configuration.
     ///
-    /// Sets up the Iroh endpoint with relay discovery, creates an in-memory blob store,
+    /// Sets up the Iroh endpoint with relay discovery, creates a file-based blob store,
     /// and initializes the protocol router for handling P2P connections.
     ///
     /// # Errors
@@ -136,7 +136,15 @@ impl GinsengCore {
     /// Returns an error if the endpoint cannot be created or bound to a port.
     pub async fn new() -> Result<Self> {
         let endpoint = create_endpoint().await?;
-        let store = MemStore::new();
+
+        let store_path = dirs::data_dir()
+            .ok_or_else(|| anyhow::anyhow!("Failed to get data directory"))?
+            .join("ginseng")
+            .join("blobs");
+
+        tokio::fs::create_dir_all(&store_path).await?;
+        let store = FsStore::load(store_path).await?;
+
         let blob_protocol = BlobsProtocol::new(&store, None);
         let router = create_router(&endpoint, &blob_protocol);
 
@@ -180,7 +188,8 @@ impl GinsengCore {
     ) -> Result<String> {
         validate_paths_not_empty(&paths)?;
 
-        let progress_tracker = ProgressTracker::new(uuid::Uuid::new_v4().to_string(), TransferType::Upload);
+        let progress_tracker =
+            ProgressTracker::new(uuid::Uuid::new_v4().to_string(), TransferType::Upload);
         let progress_rate_limiter = RateLimiter::new(Duration::from_millis(16));
 
         channel
@@ -189,7 +198,9 @@ impl GinsengCore {
             })
             .ok();
 
-        progress_tracker.set_stage(TransferStage::Initializing).await;
+        progress_tracker
+            .set_stage(TransferStage::Initializing)
+            .await;
 
         let upload_tasks = initialize_upload_tasks(&paths, &progress_tracker).await?;
 
@@ -199,7 +210,9 @@ impl GinsengCore {
             })
             .ok();
 
-        progress_tracker.set_stage(TransferStage::Transferring).await;
+        progress_tracker
+            .set_stage(TransferStage::Transferring)
+            .await;
 
         let file_infos = upload_files_concurrently(
             upload_tasks,
@@ -265,7 +278,8 @@ impl GinsengCore {
 
         let ticket = parse_ticket(&ticket_str)?;
         let bundle =
-            download_and_parse_bundle(&self.endpoint, &self.blob_protocol, &self.store, &ticket).await?;
+            download_and_parse_bundle(&self.endpoint, &self.blob_protocol, &self.store, &ticket)
+                .await?;
 
         let target_directory = determine_target_directory(&bundle.metadata)?;
 
@@ -279,17 +293,21 @@ impl GinsengCore {
                 .await;
         }
 
-        progress_tracker.set_stage(TransferStage::Transferring).await;
+        progress_tracker
+            .set_stage(TransferStage::Transferring)
+            .await;
         channel
             .send(ProgressEvent::TransferProgress {
                 transfer: progress_tracker.get_snapshot().await,
             })
             .ok();
 
-        let download_concurrency = 6;
+        let download_concurrency = std::cmp::min(8, num_cpus::get() * 2);
+
         let progress_channel = Arc::new(channel);
 
         let snapshot = progress_tracker.get_snapshot().await;
+
         let download_tasks: Vec<DownloadFileTask> = bundle
             .metadata
             .files
@@ -675,7 +693,9 @@ async fn download_one_file(
     blob_protocol
         .export(file_hash, &target_path)
         .await
-        .map_err(|error| anyhow::anyhow!("Failed to export file '{}': {}", file_info.name, error))?;
+        .map_err(|error| {
+            anyhow::anyhow!("Failed to export file '{}': {}", file_info.name, error)
+        })?;
 
     progress_tracker
         .update_file(&file_id, |file_progress| {
@@ -901,7 +921,10 @@ fn determine_share_type(paths: &[PathBuf], file_infos: &[FileInfo]) -> ShareType
 /// # Errors
 ///
 /// Returns an error if serialization or storage fails
-async fn store_metadata_as_blob(blob_protocol: &BlobsProtocol, metadata: &ShareMetadata) -> Result<String> {
+async fn store_metadata_as_blob(
+    blob_protocol: &BlobsProtocol,
+    metadata: &ShareMetadata,
+) -> Result<String> {
     let metadata_json = serde_json::to_string(metadata)?;
     store_json_as_blob(blob_protocol, &metadata_json).await
 }
@@ -1020,7 +1043,7 @@ fn parse_ticket(ticket_str: &str) -> Result<BlobTicket> {
 async fn download_and_parse_bundle(
     endpoint: &Endpoint,
     blob_protocol: &BlobsProtocol,
-    store: &MemStore,
+    store: &FsStore,
     ticket: &BlobTicket,
 ) -> Result<ShareBundle> {
     let _connection = establish_connection(endpoint, ticket).await?;
@@ -1060,7 +1083,7 @@ async fn establish_connection(endpoint: &Endpoint, ticket: &BlobTicket) -> Resul
 /// # Errors
 ///
 /// Returns an error if the download fails
-async fn download_blob(endpoint: &Endpoint, store: &MemStore, ticket: &BlobTicket) -> Result<()> {
+async fn download_blob(endpoint: &Endpoint, store: &FsStore, ticket: &BlobTicket) -> Result<()> {
     let downloader = store.downloader(endpoint);
     downloader
         .download(ticket.hash(), Some(ticket.addr().id))
@@ -1082,9 +1105,14 @@ async fn download_blob(endpoint: &Endpoint, store: &MemStore, ticket: &BlobTicke
 /// # Errors
 ///
 /// Returns an error if export, parsing, or cleanup fails
-async fn parse_bundle_from_blob(blob_protocol: &BlobsProtocol, ticket: &BlobTicket) -> Result<ShareBundle> {
+async fn parse_bundle_from_blob(
+    blob_protocol: &BlobsProtocol,
+    ticket: &BlobTicket,
+) -> Result<ShareBundle> {
     let temp_bundle_path = create_temp_bundle_path(ticket);
-    blob_protocol.export(ticket.hash(), &temp_bundle_path).await?;
+    blob_protocol
+        .export(ticket.hash(), &temp_bundle_path)
+        .await?;
 
     let bundle_json = fs::read_to_string(&temp_bundle_path).await?;
     let bundle = serde_json::from_str(&bundle_json)?;
