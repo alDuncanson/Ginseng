@@ -56,7 +56,7 @@ async fn main() {
 ///
 /// Returns an error if core initialization or command execution fails
 async fn run(args: Args) -> Result<()> {
-    let ginseng = GinsengCore::new().await?;
+    let ginseng = GinsengCore::with_store_suffix("ginseng-cli").await?;
 
     match args.command {
         Commands::Send { paths, files_only } => handle_send(ginseng, paths, files_only).await,

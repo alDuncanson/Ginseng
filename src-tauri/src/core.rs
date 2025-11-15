@@ -135,11 +135,26 @@ impl GinsengCore {
     ///
     /// Returns an error if the endpoint cannot be created or bound to a port.
     pub async fn new() -> Result<Self> {
+        Self::with_store_suffix("ginseng").await
+    }
+
+    /// Creates a new GinsengCore instance with a custom store suffix.
+    ///
+    /// Useful for running multiple instances (e.g., CLI and GUI) without conflicts.
+    ///
+    /// # Arguments
+    ///
+    /// * `store_suffix` - Suffix for the store directory (e.g., "ginseng" or "ginseng-cli")
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the endpoint cannot be created or bound to a port.
+    pub async fn with_store_suffix(store_suffix: &str) -> Result<Self> {
         let endpoint = create_endpoint().await?;
 
         let store_path = dirs::data_dir()
             .ok_or_else(|| anyhow::anyhow!("Failed to get data directory"))?
-            .join("ginseng")
+            .join(store_suffix)
             .join("blobs");
 
         tokio::fs::create_dir_all(&store_path).await?;
