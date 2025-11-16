@@ -44,8 +44,19 @@ async fn main() {
     }
 }
 
+/// Runs the CLI application with the parsed arguments
+///
+/// Creates a GinsengCore instance and dispatches to the appropriate command handler.
+///
+/// # Arguments
+///
+/// * `args` - Parsed command-line arguments
+///
+/// # Errors
+///
+/// Returns an error if core initialization or command execution fails
 async fn run(args: Args) -> Result<()> {
-    let ginseng = GinsengCore::new().await?;
+    let ginseng = GinsengCore::with_store_suffix("ginseng-cli").await?;
 
     match args.command {
         Commands::Send { paths, files_only } => handle_send(ginseng, paths, files_only).await,
@@ -54,6 +65,19 @@ async fn run(args: Args) -> Result<()> {
     }
 }
 
+/// Handles the send command - shares files and waits for Ctrl+C
+///
+/// Validates paths, shares files, displays the ticket, and blocks until interrupted.
+///
+/// # Arguments
+///
+/// * `ginseng` - Initialized GinsengCore instance
+/// * `paths` - Vector of file or directory paths to share
+/// * `files_only` - If true, ensures all paths are files (not directories)
+///
+/// # Errors
+///
+/// Returns an error if validation fails, sharing fails, or signal handling fails
 async fn handle_send(ginseng: GinsengCore, paths: Vec<PathBuf>, files_only: bool) -> Result<()> {
     validate_paths_exist(&paths)?;
 
@@ -74,6 +98,16 @@ async fn handle_send(ginseng: GinsengCore, paths: Vec<PathBuf>, files_only: bool
     Ok(())
 }
 
+/// Handles the receive command - downloads files from a ticket
+///
+/// # Arguments
+///
+/// * `ginseng` - Initialized GinsengCore instance
+/// * `ticket` - Ticket string received from the sender
+///
+/// # Errors
+///
+/// Returns an error if download fails
 async fn handle_receive(ginseng: GinsengCore, ticket: String) -> Result<()> {
     println!("🔄 Downloading files from ticket...");
 
@@ -84,6 +118,15 @@ async fn handle_receive(ginseng: GinsengCore, ticket: String) -> Result<()> {
     Ok(())
 }
 
+/// Handles the info command - displays node information
+///
+/// # Arguments
+///
+/// * `ginseng` - Initialized GinsengCore instance
+///
+/// # Errors
+///
+/// Returns an error if node info retrieval fails
 async fn handle_info(ginseng: GinsengCore) -> Result<()> {
     let info = ginseng.node_info().await?;
     println!("🔧 Node Information:");
@@ -91,6 +134,15 @@ async fn handle_info(ginseng: GinsengCore) -> Result<()> {
     Ok(())
 }
 
+/// Validates that all paths exist
+///
+/// # Arguments
+///
+/// * `paths` - Slice of paths to validate
+///
+/// # Errors
+///
+/// Returns an error if any path does not exist
 fn validate_paths_exist(paths: &[PathBuf]) -> Result<()> {
     for path in paths {
         if !path.exists() {
@@ -100,6 +152,15 @@ fn validate_paths_exist(paths: &[PathBuf]) -> Result<()> {
     Ok(())
 }
 
+/// Validates that all paths are files (not directories)
+///
+/// # Arguments
+///
+/// * `paths` - Slice of paths to validate
+///
+/// # Errors
+///
+/// Returns an error if any path is not a file
 fn validate_paths_are_files(paths: &[PathBuf]) -> Result<()> {
     for path in paths {
         if !path.is_file() {
@@ -112,6 +173,11 @@ fn validate_paths_are_files(paths: &[PathBuf]) -> Result<()> {
     Ok(())
 }
 
+/// Displays a summary of what is being shared
+///
+/// # Arguments
+///
+/// * `paths` - Slice of paths to summarize
 fn display_sharing_summary(paths: &[PathBuf]) {
     if paths.len() == 1 {
         display_single_path_summary(&paths[0]);
@@ -120,6 +186,11 @@ fn display_sharing_summary(paths: &[PathBuf]) {
     }
 }
 
+/// Displays a summary for a single path (file or directory)
+///
+/// # Arguments
+///
+/// * `path` - Path to summarize
 fn display_single_path_summary(path: &PathBuf) {
     if path.is_file() {
         println!("Sharing file: {}", path.display());
@@ -135,6 +206,11 @@ fn display_single_path_summary(path: &PathBuf) {
     }
 }
 
+/// Displays a summary for multiple paths
+///
+/// # Arguments
+///
+/// * `paths` - Slice of paths to summarize
 fn display_multiple_paths_summary(paths: &[PathBuf]) {
     println!("Sharing {} items:", paths.len());
     for path in paths {
@@ -143,12 +219,23 @@ fn display_multiple_paths_summary(paths: &[PathBuf]) {
     }
 }
 
+/// Displays the shareable ticket and instructions
+///
+/// # Arguments
+///
+/// * `ticket` - Ticket string to display
 fn display_share_ticket(ticket: &str) {
     println!("\n🎫 Share Ticket:");
     println!("{}", ticket);
     println!("\nShare this ticket with the recipient. Press Ctrl+C to stop sharing.");
 }
 
+/// Displays a summary of the download results
+///
+/// # Arguments
+///
+/// * `metadata` - Share metadata containing file information
+/// * `download_path` - Path where files were downloaded
 fn display_download_summary(metadata: &ShareMetadata, download_path: &Path) {
     println!("✅ Successfully downloaded {} files!", metadata.files.len());
     println!("📁 Location: {}", download_path.display());
@@ -159,6 +246,11 @@ fn display_download_summary(metadata: &ShareMetadata, download_path: &Path) {
     display_file_listing(&metadata.files);
 }
 
+/// Displays information about the share type
+///
+/// # Arguments
+///
+/// * `share_type` - Type of share to display
 fn display_share_type_info(share_type: &ShareType) {
     let type_description = match share_type {
         ShareType::SingleFile => "Single file".to_string(),
@@ -168,6 +260,11 @@ fn display_share_type_info(share_type: &ShareType) {
     println!("📄 Type: {}", type_description);
 }
 
+/// Displays a listing of files (truncated if more than 10)
+///
+/// # Arguments
+///
+/// * `files` - Slice of FileInfo to display
 fn display_file_listing(files: &[FileInfo]) {
     if files.len() <= 10 {
         println!("\n📋 Files:");
@@ -196,6 +293,21 @@ struct DirectorySummary {
     total_size: u64,
 }
 
+/// Calculates file count and total size for a directory
+///
+/// Recursively walks the directory to count files and sum their sizes.
+///
+/// # Arguments
+///
+/// * `dir` - Directory path to analyze
+///
+/// # Returns
+///
+/// DirectorySummary containing file count and total size
+///
+/// # Errors
+///
+/// Returns an error if directory cannot be read (though individual file errors are ignored)
 fn calculate_directory_summary(dir: &PathBuf) -> Result<DirectorySummary> {
     use walkdir::WalkDir;
 
@@ -217,7 +329,18 @@ fn calculate_directory_summary(dir: &PathBuf) -> Result<DirectorySummary> {
     })
 }
 
-// Keep in sync with formatFileSize in FileTransfer.tsx
+/// Formats file size in human-readable units (B, KB, MB, GB, TB)
+///
+/// Uses base-1024 units with 2 decimal places precision.
+/// Keep in sync with formatFileSize in FileTransfer.tsx.
+///
+/// # Arguments
+///
+/// * `bytes` - File size in bytes
+///
+/// # Returns
+///
+/// Formatted string with appropriate unit
 fn format_file_size(bytes: u64) -> String {
     if bytes == 0 {
         return "0 B".to_string();

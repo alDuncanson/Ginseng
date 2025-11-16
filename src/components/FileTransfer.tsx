@@ -1,8 +1,8 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
-import { Copy, File, Files, Folder, X } from "lucide-react";
+import { Copy, File, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { DropZone } from "@/components/DropZone";
 import { ParallelProgress } from "@/components/ParallelProgress";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,35 +39,9 @@ export function FileTransfer() {
 	const [uploadProgress, setUploadProgress] = useState<TransferProgress | null>(null);
 	const [downloadProgress, setDownloadProgress] = useState<TransferProgress | null>(null);
 
-	const selectFiles = async () => {
-		try {
-			const files = await open({
-				multiple: true,
-				directory: false,
-			});
-			if (files) {
-				const fileArray = Array.isArray(files) ? files : [files];
-				setSelectedPaths(fileArray as string[]);
-				setTicket("");
-			}
-		} catch {
-			toast.error("Failed to select files");
-		}
-	};
-
-	const selectFolder = async () => {
-		try {
-			const folder = await open({
-				multiple: false,
-				directory: true,
-			});
-			if (folder) {
-				setSelectedPaths([folder as string]);
-				setTicket("");
-			}
-		} catch {
-			toast.error("Failed to select folder");
-		}
+	const handlePathsSelected = (paths: string[]) => {
+		setSelectedPaths(paths);
+		setTicket("");
 	};
 
 	const removeFile = (pathToRemove: string) => {
@@ -215,24 +189,7 @@ export function FileTransfer() {
 					</TabsList>
 
 					<TabsContent value="send" className="space-y-8">
-						<div className="grid grid-cols-2 gap-3">
-							<Button
-								variant="outline"
-								onClick={selectFiles}
-								className="justify-start h-auto py-3 border"
-							>
-								<Files className="h-3.5 w-3.5 mr-2" />
-								<span className="font-normal">select files</span>
-							</Button>
-							<Button
-								variant="outline"
-								onClick={selectFolder}
-								className="justify-start h-auto py-3 border"
-							>
-								<Folder className="h-3.5 w-3.5 mr-2" />
-								<span className="font-normal">select folder</span>
-							</Button>
-						</div>
+						<DropZone onPathsSelected={handlePathsSelected} disabled={sendLoading} />
 
 						{selectedPaths.length > 0 && (
 							<div className="space-y-4 pt-2">

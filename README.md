@@ -60,6 +60,11 @@ figure things out):
 - [ ] mobile support
 - [ ] some sort of contact system so you don't have to copy paste tickets
 - [ ] QR codes for ticket sharing
+- [ ] system tray
+- [ ] background transfers
+- [ ] drag & drop
+- [ ] notifications
+- [ ] sounds
 
 ## Contributing
 

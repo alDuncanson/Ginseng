@@ -7,6 +7,14 @@ use tauri::Manager;
 
 pub use core::{GinsengCore, ShareType};
 
+/// Entry point for the Tauri application
+///
+/// Initializes the application with required plugins, sets up the GinsengCore,
+/// registers command handlers, and starts the event loop.
+///
+/// # Panics
+///
+/// Panics if the Tauri application fails to start
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -19,10 +27,6 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            commands::share_file,
-            commands::share_files,
-            commands::download_file,
-            commands::download_files,
             commands::share_files_parallel,
             commands::download_files_parallel,
             commands::node_info
